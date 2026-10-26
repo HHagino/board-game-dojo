@@ -242,6 +242,11 @@ function playGame(cfgB, cfgW, maxMoves, checkInv) {
   check("置き石の図 日本：黒 地35、白 地27＋死に石のアゲハマ1＝28、コミ0 → 黒7目勝ち", j.b === 35 && j.w === 28 && j.margin === 7 && j.winner === BLACK, JSON.stringify([j.b, j.w, j.margin]));
   const p = L.finalResult(D, dead, "stone", {komi: 0});
   check("置き石の図 純碁：黒10 白9 コミ0 → 黒1目勝ち", p.b === 10 && p.w === 9 && p.margin === 1 && p.winner === BLACK, JSON.stringify([p.b, p.w, p.margin]));
+  // 持碁（同数）は引き分け（2026-10-26 萩野「持碁は引き分けに揃え」＝日本囲碁規約 第十条「同数の場合は引き分け」。説明文も同じにする）
+  const E = L.initState(2).board.slice(); E[at(0,0)] = WHITE; E[at(8,8)] = WHITE;
+  const e = L.finalResult(E, null, "stone", {komi: 0});
+  check("置き碁の持碁（純碁 黒2 白2 コミ0）は引き分け", e.b === 2 && e.w === 2 && e.margin === 0 && e.winner === 0, JSON.stringify([e.b, e.w, e.winner]));
+  check("説明文も持碁＝引き分け（「持碁になったときは白の勝ち」と書かない）", /持碁[^<]*引き分け/.test(html) && !/持碁になったときは白の勝ち/.test(html));
   // 置き石の局面から、ランダムに終局まで例外なく打てる（各5局）
   let okAll = true;
   for (const n of [2, 3, 4, 5]) for (let g = 0; g < 5; g++) {
