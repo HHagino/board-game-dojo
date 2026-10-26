@@ -1,0 +1,1608 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>将棋道場</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 一列の盤面アプリ：設定 → 相手の持ち駒 → 盤 → 自分の持ち駒 → 操作 → 棋譜。色はすべてトークンから */
+:root{
+  --bg:#f3f1ea; --fg:#222; --panel:#fff; --line:#cfcabb;
+  --board:#e3b868; --board-line:#8a6a30; --piece:#f4d9a0; --piece-edge:#7a5a22; --ink:#1c1c1c; --promo:#c4271c;
+  --hint:rgba(40,110,60,.75); --sel:rgba(42,111,176,.35); --check-bg:rgba(200,40,30,.35);
+  --accent:#2a6fb0; --on-accent:#fff; --mark:#d98a00;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+    --board:#8a6a35; --board-line:#4d3a18; --piece:#d9bb83; --piece-edge:#3e2c10; --ink:#1c1c1c; --promo:#c4271c;
+    --hint:rgba(150,230,170,.85); --sel:rgba(106,169,224,.4); --check-bg:rgba(230,70,60,.45);
+    --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+  --board:#8a6a35; --board-line:#4d3a18; --piece:#d9bb83; --piece-edge:#3e2c10; --ink:#1c1c1c; --promo:#c4271c;
+  --hint:rgba(150,230,170,.85); --sel:rgba(106,169,224,.4); --check-bg:rgba(230,70,60,.45);
+  --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 "Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+  padding-block:12px 32px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  max-width:520px;margin:0 auto;-webkit-text-size-adjust:100%}
+h1{font-size:20px;margin:4px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+label{font-size:15px}
+select,button{font:inherit;font-size:16px;min-height:44px;padding:4px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button{cursor:pointer}
+button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+#msg{min-height:3.2em;font-size:16px;margin:6px 2px}
+#msg b{color:var(--promo)}
+.hand{margin:4px 0}
+.hand .lab{font-size:14px;opacity:.85;margin:0 2px}
+.hand .items{display:flex;flex-wrap:wrap;gap:4px;min-height:42px;align-items:center}
+.hand .none{font-size:14px;opacity:.7;padding-left:2px}
+.hbtn{position:relative;min-width:42px;min-height:42px;padding:0 6px;display:flex;align-items:center;justify-content:center;gap:2px;
+  background:var(--piece);color:var(--ink);border:1.5px solid var(--piece-edge);font-size:20px;line-height:1}
+.hbtn.on{outline:3px solid var(--accent);outline-offset:1px}
+.hbtn .n{font-size:14px}
+.hbtn .g.rot{transform:rotate(180deg);display:inline-block}
+#board{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);width:min(100%, 480px);max-width:100%;aspect-ratio:1/1;margin:6px auto;
+  background:var(--board);border:3px solid var(--board-line);border-radius:4px;touch-action:manipulation;container-type:inline-size}
+.cell{position:relative;border:1px solid var(--board-line);min-width:0;min-height:0;display:block;
+  padding:0;margin:0;background:transparent;border-radius:0;cursor:pointer;overflow:hidden}
+.cell.sel{background:var(--sel)}
+.cell.chk{background:var(--check-bg)}
+.cell.last{box-shadow:inset 0 0 0 3px var(--mark)}
+.cell:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
+.cell:disabled{opacity:1}
+.pc{position:absolute;inset:7% 9%;background:var(--piece-edge);clip-path:polygon(50% 0,88% 18%,100% 100%,0 100%,12% 18%)}
+.pc::before{content:"";position:absolute;inset:1.5px;background:var(--piece);clip-path:polygon(50% 0,88% 18%,100% 100%,0 100%,12% 18%)}
+.pc .ch{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding-top:8%;color:var(--ink);
+  font-size:24px;font-size:6.6cqw;font-weight:700;line-height:1;font-family:"Yu Mincho","Hiragino Mincho ProN","MS Mincho",serif}
+.pc.prom .ch{color:var(--promo)}
+.pc.rot{transform:rotate(180deg)}
+.cell .hint{position:absolute;left:50%;top:50%;width:30%;height:30%;margin:-15% 0 0 -15%;border-radius:50%;background:var(--hint)}
+.cell .hint.cap{width:80%;height:80%;margin:-40% 0 0 -40%;background:transparent;border:3px solid var(--hint)}
+#promo{display:none}
+#promo.show{display:block}
+#kifu{font-size:14px;line-height:1.7;max-height:8.5em;overflow:auto;word-break:keep-all}
+#kifu span{display:inline-block;margin-right:.7em;white-space:nowrap}
+small{font-size:14px;color:inherit;opacity:.85}
+.guide h3{font-size:17px;margin:14px 0 2px}
+.guide p{margin:4px 0}
+.guide dt{font-weight:bold;margin-top:6px}
+.guide dd{margin:0 0 2px 0}
+details{font-size:15px}
+details summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:bold}
+.fig{display:block;max-width:100%;margin:6px 0}
+.fb{fill:var(--board);stroke:var(--board-line);stroke-width:.04}
+.fb.tint{fill:var(--sel)}
+.fb.bad{fill:var(--check-bg)}
+.fp{fill:var(--piece);stroke:var(--piece-edge);stroke-width:.05}
+.ft{font-size:.62px;text-anchor:middle;dominant-baseline:central;font-weight:700;fill:var(--ink);font-family:"Yu Mincho","Hiragino Mincho ProN","MS Mincho",serif}
+.ft.prom{fill:var(--promo)}
+.fdot{fill:var(--hint)}
+.fring{fill:none;stroke:var(--hint);stroke-width:.08}
+.fx{stroke:var(--promo);stroke-width:.1;stroke-linecap:round}
+.far{stroke:var(--accent);stroke-width:.09;fill:none;stroke-linecap:round}
+.farh{fill:var(--accent)}
+.flab{font-size:.34px;fill:var(--fg);text-anchor:middle}
+.mvrow{display:flex;gap:10px;align-items:center;margin:6px 0}
+.mvrow .fig{flex:none;margin:0}
+.chip{display:inline-block;min-width:34px;padding:2px 6px;margin:2px 2px 2px 0;text-align:center;background:var(--piece);color:var(--ink);border:1.5px solid var(--piece-edge);border-radius:4px;
+  font-family:"Yu Mincho","Hiragino Mincho ProN","MS Mincho",serif;font-weight:700;font-size:17px;line-height:1.4}
+.chip.prom{color:var(--promo)}
+.chips{margin:4px 0}
+.pz-msg{min-height:3.4em;margin:6px 0}
+.pz-msg .ok{color:var(--accent);font-weight:bold}
+#pboard{display:block;width:min(100%, 360px);aspect-ratio:1/1;margin:6px auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#pboard .hit{fill:transparent;cursor:pointer}
+#pboard .sel{fill:var(--sel)}
+</style>
+</head>
+<body>
+<h1>将棋道場</h1>
+
+<div class="panel guide">
+<details id="guide" open>
+  <summary>はじめての人へ（ルールの説明）</summary>
+  <p>上から順に読めば、このページだけで対局を最後まで終えられます。<b>おすすめ設定</b>：コンピュータと対戦・自分が先手・強さは弱い・平手。<button type="button" id="recommend">おすすめ設定にする</button></p>
+
+  <h3>① 目的</h3>
+  <span data-fig="aim"></span>
+  <p>相手の玉（王）が、どう動いても次に取られる状態にすれば勝ちです。この状態を「詰み」といいます（図は先手の金と銀で、上の後手の玉が詰んでいる形）。</p>
+
+  <h3>② 盤と並べ方</h3>
+  <span data-fig="setup"></span>
+  <p>盤は9×9。先手（▲）が下側、後手（△）が上側で、それぞれ20枚の駒を図のように並べます。先手と後手が1手ずつ交互に指します。筋は右から1〜9、段は上から一〜九と数えます。たとえば「▲７六歩」は、先手が7筋の六段目へ歩を進めた手です。駒落ち（対局設定の［手合割］）では、駒を落とした側（上手）が先に指します。</p>
+
+  <h3>③ 駒の動き（8種類）</h3>
+  <p>図の緑の点が、その駒の動ける先です（駒は先手＝上向きで描いています）。</p>
+  <div id="movesBox"></div>
+
+  <h3>④ 成り</h3>
+  <span data-fig="promo"></span>
+  <p>青い部分（相手側の3段）が「敵陣」です。駒が敵陣に入るとき、敵陣から出るとき（敵陣の中で動くときも、動く前か後が敵陣なら）、駒を裏返して「成る」ことができます。成るかどうかは選べます（成らないことを「不成」といいます）。一度成ったら元には戻せません。</p>
+  <div class="chips">
+    <span class="chip">歩</span>→<span class="chip prom">と</span>　<span class="chip">香</span>→<span class="chip prom">杏</span>　<span class="chip">桂</span>→<span class="chip prom">圭</span>　<span class="chip">銀</span>→<span class="chip prom">全</span>
+  </div>
+  <p>歩・香・桂・銀は成ると<b>金と同じ動き</b>になります。<span class="chip">角</span>→<span class="chip prom">馬</span>は角の動きに縦横1マスが加わり、<span class="chip">飛</span>→<span class="chip prom">龍</span>は飛車の動きに斜め1マスが加わります。<b>玉と金は成れません。</b></p>
+  <p><b>必ず成る場合</b>：歩と香が一番奥の段、桂が奥の2段に進むと、その先で動けなくなります。動けなくなる所へは進めないので、この場合は必ず成ります（画面では「成りますか？」を出さず、自動で成ります）。</p>
+
+  <h3>⑤ 駒を取る・持ち駒・打つ</h3>
+  <span data-fig="capture"></span>
+  <p>相手の駒がいる所へ進むと、その駒を取れます（図の緑の輪）。取った駒は自分の「持ち駒」になり、成っていた駒は元の駒に戻ります。</p>
+  <span data-fig="drop"></span>
+  <p>持ち駒は、自分の番に動かす代わりに、空いているマスへ好きに「打つ」ことができます（図の緑の点。打つときは成っていない面です）。打った駒はそのまま盤上の自分の駒になります。盤の下（上）に並ぶ持ち駒を押してから、打つ場所を押します。</p>
+
+  <h3>⑥ 打てない所（反則になる打ち方）</h3>
+  <span data-fig="nifu"></span>
+  <p><b>二歩</b>：自分の歩（成っていない歩）がある筋には、持ち駒の歩を打てません（図の赤い×の筋）。成った「と」は数えません。</p>
+  <span data-fig="stuck"></span>
+  <p><b>行き所のない駒</b>：動けなくなる所には打てません。歩と香は一番奥の段、桂は奥の2段です（図の赤い段）。</p>
+  <span data-fig="uchifu"></span>
+  <p><b>打ち歩詰め</b>：持ち駒の歩を打って詰ませてはいけません（図の×の歩は、玉も取れず逃げられない＝詰みなので反則）。歩を打って王手をかけるだけなら反則ではありません。盤上の歩を進めて詰ませるのも反則ではありません。この画面では、反則になる手は指せないようになっています。</p>
+
+  <h3>⑦ 王手と詰み</h3>
+  <span data-fig="check"></span>
+  <p>次に玉を取ろうとする手が「王手」です。王手をかけられたら、必ず防がなければなりません（防がない手、自分の玉が取られる手は指せません）。防ぎ方は3つ。<b>逃げる</b>（玉を王手されない所へ動かす）／<b>取る</b>（王手をかけている駒を取る）／<b>合駒</b>（飛・角・香の王手のとき、間に駒を打つか動かして遮る。桂は間の駒を飛び越えるので、合駒では防げません）。どれもできなければ「詰み」で負けです。</p>
+
+  <h3>⑧ 千日手・引き分けと未対応のこと</h3>
+  <span data-fig="sennichite"></span>
+  <p>盤の形・持ち駒・手番が全く同じになるのが4回目になると「千日手」です。日本将棋連盟の対局規則では、先後を入れ替えて指し直しますが、この画面では<b>引き分け</b>として終わります。ただし王手をかけ続けて同じ形が4回になったときは、王手をかけ続けた側の負けです。※入玉宣言・持将棋には未対応です。</p>
+
+  <h3>⑨ 駒の価値の目安</h3>
+  <div class="chips">
+    <span class="chip">歩</span>1　<span class="chip">香</span>3　<span class="chip">桂</span>3　<span class="chip">銀</span>5　<span class="chip">金</span>5　<span class="chip">角</span>8　<span class="chip">飛</span>10
+  </div>
+  <p>歩を1としたときの、初心者向けのおおまかな目安です。日本将棋連盟の公式な点数ではなく、場所や持ち駒、玉との関係で価値は大きく変わります。ただ、大きな駒と小さな駒を交換するときの目安になります。</p>
+
+  <h3>⑩ 序盤のコツ（3つ）</h3>
+  <span data-fig="tips"></span>
+  <p>① <b>駒を取られていないか毎回見る</b>：相手の駒が自分の駒に届いていて、守りがなければ取られます。相手の動きも先に確かめます。② <b>歩を突いて道をあける</b>：７六歩（角の道）や２六歩（飛車の前）のように歩を進めると、角や飛車が動けるようになります（図の矢印）。③ <b>玉のそばに金・銀を寄せる</b>：玉を金銀で囲うと詰まされにくくなります。玉を前に出しすぎないようにします。</p>
+
+  <h3>用語集</h3>
+  <dl>
+    <dt>王手</dt><dd>次に玉を取ろうとする手。必ず防ぐ。</dd>
+    <dt>詰み</dt><dd>何を指しても次に玉を取られる状態。詰ませた方の勝ち。</dd>
+    <dt>成り・不成</dt><dd>敵陣（相手側の3段）で駒を裏返すこと。選んで成らないこともできる（不成）。</dd>
+    <dt>持ち駒</dt><dd>取った相手の駒。自分の手番に好きな空きマスへ打てる。</dd>
+    <dt>打つ</dt><dd>持ち駒を盤の空きマスへ置く手。</dd>
+    <dt>二歩</dt><dd>歩のある筋へ、もう1枚歩を打つ反則。</dd>
+    <dt>打ち歩詰め</dt><dd>持ち駒の歩を打って相手を詰ませる反則。</dd>
+    <dt>千日手</dt><dd>同じ局面が4回。この画面では引き分け（連続王手は王手側の負け）。</dd>
+    <dt>合駒</dt><dd>飛・角・香の王手を、間に駒を置いて防ぐこと。</dd>
+    <dt>敵陣</dt><dd>相手側の3段。成れる範囲。</dd>
+    <dt>手合割</dt><dd>対局前に決める駒落ちの種類（平手も含む）。</dd>
+    <dt>駒落ち</dt><dd>実力に差があるとき、強い方が駒を何枚か抜いて指すこと。</dd>
+    <dt>上手・下手</dt><dd>駒落ちで、駒を落とした（ハンディを持つ）方が上手、全部の駒で指す方が下手。必ず上手が先に指す。</dd>
+    <dt>平手</dt><dd>ハンディのない普通の対局。</dd>
+    <dt>大駒・小駒</dt><dd>飛と角が大駒。金・銀・桂・香・歩が小駒。</dd>
+  </dl>
+</details>
+</div>
+
+<div class="panel">
+<details id="practice">
+  <summary>やってみよう（練習問題・6問）</summary>
+  <p id="pzTitle"><b></b></p>
+  <p id="pzAsk"></p>
+  <svg id="pboard" viewBox="0 0 9 9" role="img" aria-label="練習用の盤。押して駒を動かします"></svg>
+  <div class="hand" id="pzHand"></div>
+  <div id="pzPromo" class="panel" hidden>
+    <div style="margin-bottom:6px">成りますか？</div>
+    <div class="row"><button type="button" id="pzYes" class="primary">成る</button><button type="button" id="pzNo">成らない</button></div>
+  </div>
+  <div id="pzMsg" class="pz-msg" role="status" aria-live="polite"></div>
+  <div class="row">
+    <button type="button" id="pzHint">ヒント</button>
+    <button type="button" id="pzRetry">やり直す</button>
+    <button type="button" id="pzNext" class="primary">次の問題</button>
+  </div>
+</details>
+</div>
+
+
+<div class="panel">
+  <div class="row">
+    <label for="mode">あそび方</label>
+    <select id="mode">
+      <option value="cpu">コンピュータと対戦</option>
+      <option value="two">2人で1台</option>
+      <option value="net">友だちと対局（オンライン）</option>
+    </select>
+  </div>
+  <div class="row" id="hcRow" style="margin-top:6px">
+    <label for="hc">手合割</label>
+    <select id="hc"></select>
+  </div>
+  <div class="row" id="cpuOpts" style="margin-top:6px">
+    <label for="me">あなたは</label>
+    <select id="me"><option value="1">先手（▲）</option><option value="-1">後手（△）</option></select>
+    <label for="lv">強さ</label>
+    <select id="lv"><option value="weak">弱い</option><option value="mid" selected>ふつう</option><option value="strong">強い</option></select>
+  </div>
+</div>
+
+<div class="panel" id="fpRoot" hidden></div>
+
+<div id="msg" role="status" aria-live="polite"></div>
+
+<div class="hand" id="handTop"></div>
+<div id="board" role="grid" aria-label="将棋の盤"></div>
+<div class="hand" id="handBot"></div>
+
+<div class="panel" id="promo" aria-live="polite">
+  <div style="margin-bottom:6px">成りますか？</div>
+  <div class="row">
+    <button id="pYes" class="primary">成る</button>
+    <button id="pNo">成らない</button>
+  </div>
+</div>
+
+<div class="row" id="localBtns" style="margin-top:8px">
+  <button id="undo">待った</button>
+  <button id="reset" class="primary">最初から</button>
+</div>
+
+<div class="panel">
+  <div style="font-size:14px;opacity:.85;margin-bottom:2px">棋譜</div>
+  <div id="kifu" aria-label="棋譜"></div>
+</div>
+<p><small>駒を押すと動ける所に印が出ます（緑の点＝空き、緑の輪＝取れる）。持ち駒を押すと打てる所が出ます。黄色い枠は最後の手です。
+千日手は同じ局面が4回で、この画面では引き分け（連盟の対局規則は指し直し。連続王手の場合は王手をかけ続けた側の負け）。入玉宣言・持将棋には未対応です。駒落ちは上手（△）が先に指し、棋譜の記号は下手＝▲・上手＝△のままです。棋譜の同じ駒の見分け（右・左・直など）は付けていません。
+友だちと対局（オンライン）では、待った・最初から・手合割・コンピュータの設定は使えません（手合割は対局を作るときに選びます）。盤は自分の側が手前になります。</small></p>
+<script>
+// ===== LOGIC-BEGIN (test.js はこの区間をそのまま読み込んで検査する) =====
+// 盤: 81マスの配列。index = 段*9 + 筋の列。段0 = 一段目（上）、列0 = ９筋（左）。
+// 駒: 先手は正、後手は負。種類 1歩 2香 3桂 4銀 5金 6角 7飛 8玉、成り = 種類+8（9と 10杏 11圭 12全 14馬 15龍）。
+// 手: 整数。from(0..80 盤上 / 100+種類 打つ) | to<<8 | 成る<<16
+var SENTE = 1, GOTE = -1;
+var NAMES = ["","歩","香","桂","銀","金","角","飛","玉","と","成香","成桂","成銀","","馬","龍"];
+var DISP  = ["","歩","香","桂","銀","金","角","飛","玉","と","杏","圭","全","","馬","龍"];
+var VAL   = [0,90,315,405,495,540,855,945,0,540,540,540,540,0,945,1305];
+var START_SFEN = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+
+function mkKey(list){
+  var a = [0,0,0,0,0,0,0,0,0];
+  for (var i = 0; i < list.length; i++) a[(list[i][0] + 1) * 3 + list[i][1] + 1] = 1;
+  return a;
+}
+var GD = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,0]];
+var SD = [[-1,-1],[-1,0],[-1,1],[1,-1],[1,1]];
+var KD = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+var OD = [[-1,0],[1,0],[0,-1],[0,1]];
+var DD = [[-1,-1],[-1,1],[1,-1],[1,1]];
+var STEPK = [], SLIDEK = [], STEPL = [], SLIDEL = [];
+(function(){
+  for (var t = 0; t < 16; t++){ STEPK[t] = mkKey([]); SLIDEK[t] = mkKey([]); STEPL[t] = []; SLIDEL[t] = []; }
+  function def(t, steps, slides, jumps){
+    STEPK[t] = mkKey(steps); SLIDEK[t] = mkKey(slides);
+    STEPL[t] = steps.concat(jumps || []); SLIDEL[t] = slides;
+  }
+  def(1, [[-1,0]], []); def(2, [], [[-1,0]]); def(3, [], [], [[-2,-1],[-2,1]]);
+  def(4, SD, []); def(5, GD, []); def(6, [], DD); def(7, [], OD); def(8, KD, []);
+  def(9, GD, []); def(10, GD, []); def(11, GD, []); def(12, GD, []);
+  def(14, OD, DD); def(15, DD, OD);
+})();
+var DIR8 = KD;
+var ILLEGAL = 127;
+
+function sideIdx(s){ return s === 1 ? 0 : 1; }
+function copyState(S){ return {b: S.b.slice(), h: [S.h[0].slice(), S.h[1].slice()], turn: S.turn, kp: S.kp.slice()}; }
+
+function parseSfen(str){
+  var parts = str.trim().split(/\s+/), rows = parts[0].split("/");
+  var S = {b: new Array(81).fill(0), h: [new Array(8).fill(0), new Array(8).fill(0)], turn: parts[1] === "w" ? -1 : 1, kp: [-1,-1]};
+  var LET = "PLNSGBRK", r, c, k, ch;
+  for (r = 0; r < 9; r++){
+    c = 0; var prom = 0, row = rows[r];
+    for (k = 0; k < row.length; k++){
+      ch = row.charAt(k);
+      if (ch >= "0" && ch <= "9"){ c += +ch; }
+      else if (ch === "+"){ prom = 8; }
+      else {
+        var up = ch.toUpperCase(), t = LET.indexOf(up) + 1 + prom, sg = (ch === up) ? 1 : -1;
+        S.b[r * 9 + c] = sg * t;
+        if (t === 8) S.kp[sideIdx(sg)] = r * 9 + c;
+        c++; prom = 0;
+      }
+    }
+  }
+  if (parts[2] && parts[2] !== "-"){
+    var cnt = 0;
+    for (k = 0; k < parts[2].length; k++){
+      ch = parts[2].charAt(k);
+      if (ch >= "0" && ch <= "9"){ cnt = cnt * 10 + (+ch); }
+      else { var u = ch.toUpperCase(); S.h[ch === u ? 0 : 1][LET.indexOf(u) + 1] += (cnt || 1); cnt = 0; }
+    }
+  }
+  return S;
+}
+function posKey(S){ return S.b.join(",") + "|" + S.h[0].join("") + "/" + S.h[1].join("") + "|" + S.turn; }
+
+// s の玉が王手されているか
+function inCheck(S, s){
+  var k = S.kp[sideIdx(s)];
+  if (k < 0) return false;
+  var kr = (k / 9) | 0, kc = k % 9, e = -s, b = S.b;
+  for (var d = 0; d < 8; d++){
+    var dr = DIR8[d][0], dc = DIR8[d][1], key = (-dr * e + 1) * 3 + (-dc + 1);
+    var r = kr + dr, c = kc + dc, first = true;
+    while (r >= 0 && r < 9 && c >= 0 && c < 9){
+      var p = b[r * 9 + c];
+      if (p !== 0){
+        if (p * e > 0){
+          var t = p * e;
+          if ((first && STEPK[t][key]) || SLIDEK[t][key]) return true;
+        }
+        break;
+      }
+      first = false; r += dr; c += dc;
+    }
+  }
+  var r2 = kr + 2 * e; // 相手の桂（相手の前方 = -e 方向へ2段・1筋）
+  if (r2 >= 0 && r2 < 9){
+    if (kc > 0 && b[r2 * 9 + kc - 1] === e * 3) return true;
+    if (kc < 8 && b[r2 * 9 + kc + 1] === e * 3) return true;
+  }
+  return false;
+}
+
+function addMv(out, from, to, t, s, r0, r1){
+  if (t === 1 || t === 2 || t === 3 || t === 4 || t === 6 || t === 7){
+    var z0 = s === 1 ? r0 <= 2 : r0 >= 6, z1 = s === 1 ? r1 <= 2 : r1 >= 6;
+    if (z0 || z1){
+      out.push(from | (to << 8) | (1 << 16));
+      var forced = (t <= 2 && (s === 1 ? r1 === 0 : r1 === 8)) || (t === 3 && (s === 1 ? r1 <= 1 : r1 >= 7));
+      if (!forced) out.push(from | (to << 8));
+      return;
+    }
+  }
+  out.push(from | (to << 8));
+}
+// 擬似合法手（王手放置・打ち歩詰めはまだ除かない）
+function genPseudo(S, out){
+  var s = S.turn, b = S.b, h = S.h[sideIdx(s)], i, j, t;
+  for (i = 0; i < 81; i++){
+    var p = b[i];
+    if (p * s <= 0) continue;
+    t = p * s;
+    var r = (i / 9) | 0, c = i % 9, st = STEPL[t], rr, cc, to;
+    for (j = 0; j < st.length; j++){
+      rr = r + st[j][0] * s; cc = c + st[j][1];
+      if (rr < 0 || rr > 8 || cc < 0 || cc > 8) continue;
+      to = rr * 9 + cc;
+      if (b[to] * s > 0) continue;
+      addMv(out, i, to, t, s, r, rr);
+    }
+    var sl = SLIDEL[t];
+    for (j = 0; j < sl.length; j++){
+      var dr = sl[j][0] * s, dc = sl[j][1];
+      rr = r + dr; cc = c + dc;
+      while (rr >= 0 && rr < 9 && cc >= 0 && cc < 9){
+        to = rr * 9 + cc;
+        var q = b[to];
+        if (q * s > 0) break;
+        addMv(out, i, to, t, s, r, rr);
+        if (q !== 0) break;
+        rr += dr; cc += dc;
+      }
+    }
+  }
+  var any = false;
+  for (t = 1; t <= 7; t++) if (h[t] > 0) any = true;
+  if (!any) return;
+  var pawnCol = [0,0,0,0,0,0,0,0,0];
+  if (h[1] > 0){ for (i = 0; i < 81; i++) if (b[i] === s) pawnCol[i % 9] = 1; } // 成っていない自分の歩
+  for (t = 1; t <= 7; t++){
+    if (!h[t]) continue;
+    for (var to2 = 0; to2 < 81; to2++){
+      if (b[to2] !== 0) continue;
+      var r3 = (to2 / 9) | 0;
+      if (t === 1 && (pawnCol[to2 % 9] || (s === 1 ? r3 === 0 : r3 === 8))) continue; // 二歩・行き所なし
+      if (t === 2 && (s === 1 ? r3 === 0 : r3 === 8)) continue;
+      if (t === 3 && (s === 1 ? r3 <= 1 : r3 >= 7)) continue;
+      out.push((100 + t) | (to2 << 8));
+    }
+  }
+}
+function doMove(S, mv){
+  var from = mv & 255, to = (mv >> 8) & 255, pr = (mv >> 16) & 1, s = S.turn, si = sideIdx(s), b = S.b, cap = b[to];
+  if (from >= 100){ b[to] = (from - 100) * s; S.h[si][from - 100]--; }
+  else {
+    var p = b[from]; b[from] = 0;
+    if (pr) p += 8 * s;
+    b[to] = p;
+    if (p * s === 8) S.kp[si] = to;
+  }
+  if (cap){ var ct = cap * -s; S.h[si][ct > 8 ? ct - 8 : ct]++; }
+  S.turn = -s;
+  return cap;
+}
+function undoMove(S, mv, cap){
+  var from = mv & 255, to = (mv >> 8) & 255, pr = (mv >> 16) & 1, b = S.b;
+  S.turn = -S.turn;
+  var s = S.turn, si = sideIdx(s);
+  if (from >= 100){ b[to] = 0; S.h[si][from - 100]++; }
+  else {
+    var p = b[to];
+    if (pr) p -= 8 * s;
+    b[from] = p; b[to] = 0;
+    if (p * s === 8) S.kp[si] = from;
+  }
+  if (cap){ b[to] = cap; var ct = cap * -s; S.h[si][ct > 8 ? ct - 8 : ct]--; }
+}
+// 手を指してみる。違法（王手放置・打ち歩詰め）なら元に戻して ILLEGAL を返す。合法ならそのまま指した状態で、取った駒を返す。
+function tryMove(S, mv){
+  var s = S.turn, cap = doMove(S, mv);
+  if (inCheck(S, s)){ undoMove(S, mv, cap); return ILLEGAL; }
+  if ((mv & 255) === 101 && inCheck(S, -s) && !hasLegal(S)){ undoMove(S, mv, cap); return ILLEGAL; } // 打ち歩詰め
+  return cap;
+}
+function hasLegal(S){
+  var out = []; genPseudo(S, out);
+  for (var i = 0; i < out.length; i++){
+    var cap = tryMove(S, out[i]);
+    if (cap !== ILLEGAL){ undoMove(S, out[i], cap); return true; }
+  }
+  return false;
+}
+function legalMoves(S){
+  var out = [], res = []; genPseudo(S, out);
+  for (var i = 0; i < out.length; i++){
+    var cap = tryMove(S, out[i]);
+    if (cap !== ILLEGAL){ undoMove(S, out[i], cap); res.push(out[i]); }
+  }
+  return res;
+}
+function perft(S, depth){
+  var out = [], n = 0; genPseudo(S, out);
+  for (var i = 0; i < out.length; i++){
+    var cap = tryMove(S, out[i]);
+    if (cap === ILLEGAL) continue;
+    n += depth <= 1 ? 1 : perft(S, depth - 1);
+    undoMove(S, out[i], cap);
+  }
+  return n;
+}
+
+// ---- 棋譜の字 ----
+var FW = "０１２３４５６７８９", KAN = "〇一二三四五六七八九";
+function sqName(i){ return FW.charAt(9 - (i % 9)) + KAN.charAt(((i / 9) | 0) + 1); }
+function moveText(S, mv){
+  var from = mv & 255, to = (mv >> 8) & 255, pr = (mv >> 16) & 1, s = S.turn;
+  var mark = s === 1 ? "▲" : "△", t = from >= 100 ? from - 100 : S.b[from] * s;
+  return mark + sqName(to) + NAMES[t] + (pr ? "成" : (from >= 100 ? "打" : ""));
+}
+
+// ---- 対局（千日手・終局） ----
+function newGameFrom(sfen){
+  var S = parseSfen(sfen || START_SFEN);
+  var G = {S: S, hist: [], moves: [], over: false, winner: 0, reason: ""};
+  G.hist.push({key: posKey(S), turn: S.turn, check: inCheck(S, S.turn)});
+  return G;
+}
+function updateResult(G){
+  var S = G.S;
+  G.over = false; G.winner = 0; G.reason = "";
+  if (!hasLegal(S)){
+    G.over = true; G.winner = -S.turn;
+    G.reason = inCheck(S, S.turn) ? "詰み" : "指す手がない";
+    return;
+  }
+  var n = G.hist.length - 1, key = G.hist[n].key, idx = [], j;
+  for (j = 0; j <= n; j++) if (G.hist[j].key === key) idx.push(j);
+  if (idx.length >= 4){
+    var i0 = idx[0], X;
+    for (X = 1; X >= -1; X -= 2){ // X が連続王手をかけ続けたか（X の手の直後 = 手番が -X の局面がすべて王手）
+      var all = true, seen = 0;
+      for (j = i0; j <= n; j++){
+        if (G.hist[j].turn === -X){ seen++; if (!G.hist[j].check){ all = false; break; } }
+      }
+      if (all && seen > 0){
+        G.over = true; G.winner = -X; G.reason = "連続王手の千日手（王手をかけ続けた側の負け）";
+        return;
+      }
+    }
+    G.over = true; G.winner = 0; G.reason = "千日手";
+  }
+}
+function gamePlay(G, mv){
+  var S = G.S, text = moveText(S, mv), cap = doMove(S, mv);
+  G.moves.push({mv: mv, cap: cap, text: text});
+  G.hist.push({key: posKey(S), turn: S.turn, check: inCheck(S, S.turn)});
+  updateResult(G);
+}
+function gameUndo(G){
+  if (!G.moves.length) return false;
+  var m = G.moves.pop();
+  undoMove(G.S, m.mv, m.cap);
+  G.hist.pop();
+  G.over = false; G.winner = 0; G.reason = "";
+  return true;
+}
+
+// ---- 評価・探索 ----
+function evalMat(S){
+  var v = 0, b = S.b, i, p;
+  for (i = 0; i < 81; i++){ p = b[i]; if (p) v += p > 0 ? VAL[p] : -VAL[-p]; }
+  for (i = 1; i <= 7; i++) v += (S.h[0][i] - S.h[1][i]) * Math.round(VAL[i] * 1.1);
+  return S.turn * v;
+}
+// 位置の良さ（s から見て）：歩の前進・玉の周りの金銀・玉を前に出さない・大駒の前進
+function sideTerm(S, s){
+  var b = S.b, v = 0, k = S.kp[sideIdx(s)];
+  if (k < 0) return 0;
+  var kr = (k / 9) | 0, kc = k % 9;
+  v -= 30 * (s === 1 ? 8 - kr : kr);
+  for (var i = 0; i < 81; i++){
+    var p = b[i] * s;
+    if (p <= 0 || p === 8) continue;
+    var r = (i / 9) | 0, c = i % 9, adv = s === 1 ? 8 - r : r;
+    var dist = Math.max(Math.abs(r - kr), Math.abs(c - kc));
+    if (p === 1) v += 3 * adv;
+    else if (p === 4 || p === 5){ if (dist <= 2) v += p === 5 ? 18 : 14; }
+    else if (p === 3){ if (dist <= 2) v += 6; }
+    else if (p === 6 || p === 7 || p === 14 || p === 15) v += adv;
+    if (dist <= 1) v += 6;
+  }
+  return v;
+}
+var MATE = 30000, _deadline = Infinity, _aborted = false, _nodes = 0, _pos = false, _useQ = false;
+function staticEval(S){
+  var v = evalMat(S);
+  if (_pos) v += sideTerm(S, S.turn) - sideTerm(S, -S.turn);
+  return v;
+}
+function orderMoves(S, mvs){
+  var sc = [], i, mv, from, to, cp;
+  for (i = 0; i < mvs.length; i++){
+    mv = mvs[i]; from = mv & 255; to = (mv >> 8) & 255; cp = S.b[to];
+    var x = 0;
+    if (cp) x = 10 * VAL[cp < 0 ? -cp : cp] - (from < 100 ? VAL[Math.abs(S.b[from])] : 90) / 10 + 1000;
+    if ((mv >> 16) & 1) x += 300;
+    sc.push([x, mv]);
+  }
+  sc.sort(function(a, b){ return b[0] - a[0]; });
+  for (i = 0; i < mvs.length; i++) mvs[i] = sc[i][1];
+}
+function qsearch(S, alpha, beta, ply, qd){
+  if ((++_nodes & 255) === 0 && Date.now() > _deadline){ _aborted = true; return 0; }
+  var sp = staticEval(S);
+  if (qd >= 4 || sp >= beta) return sp;
+  if (sp > alpha) alpha = sp;
+  var out = [], caps = [], i; genPseudo(S, out);
+  for (i = 0; i < out.length; i++) if (S.b[(out[i] >> 8) & 255] !== 0) caps.push(out[i]);
+  orderMoves(S, caps);
+  for (i = 0; i < caps.length; i++){
+    var cap = tryMove(S, caps[i]);
+    if (cap === ILLEGAL) continue;
+    var v = -qsearch(S, -beta, -alpha, ply + 1, qd + 1);
+    undoMove(S, caps[i], cap);
+    if (_aborted) return 0;
+    if (v >= beta) return v;
+    if (v > alpha) alpha = v;
+  }
+  return alpha;
+}
+function search(S, depth, alpha, beta, ply){
+  if ((++_nodes & 255) === 0 && Date.now() > _deadline){ _aborted = true; return 0; }
+  if (depth <= 0) return _useQ ? qsearch(S, alpha, beta, ply, 0) : staticEval(S);
+  var out = [], best = -Infinity, legal = 0, i; genPseudo(S, out); orderMoves(S, out);
+  for (i = 0; i < out.length; i++){
+    var cap = tryMove(S, out[i]);
+    if (cap === ILLEGAL) continue;
+    legal++;
+    var v = -search(S, depth - 1, -beta, -alpha, ply + 1);
+    undoMove(S, out[i], cap);
+    if (_aborted) return 0;
+    if (v > best) best = v;
+    if (v > alpha) alpha = v;
+    if (alpha >= beta) break;
+  }
+  if (!legal) return -(MATE - ply);
+  return best;
+}
+function shuffle(a){
+  for (var i = a.length - 1; i > 0; i--){ var j = Math.floor(Math.random() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+// level: "weak" | "mid" | "strong"。opts.maxDepth / opts.timeMs は強いときの上書き用。S は一時的に動かして必ず戻す。
+function chooseMove(S, level, opts){
+  opts = opts || {};
+  var moves = legalMoves(S), i, cap, v;
+  if (!moves.length) return -1;
+  if (moves.length === 1) return moves[0];
+  if (level === "weak"){
+    var wsum = 0, ws = [];
+    for (i = 0; i < moves.length; i++){ var w = S.b[(moves[i] >> 8) & 255] !== 0 ? 3 : 1; ws.push(w); wsum += w; }
+    var x = Math.random() * wsum;
+    for (i = 0; i < moves.length; i++){ x -= ws[i]; if (x < 0) return moves[i]; }
+    return moves[moves.length - 1];
+  }
+  shuffle(moves);
+  if (level === "mid"){ // 駒の価値だけで2手読み
+    _pos = false; _useQ = false; _deadline = Infinity; _aborted = false;
+    var bestV = -Infinity, bestM = moves[0];
+    for (i = 0; i < moves.length; i++){
+      cap = doMove(S, moves[i]);
+      v = -search(S, 1, -Infinity, Infinity, 1);
+      undoMove(S, moves[i], cap);
+      if (v > bestV){ bestV = v; bestM = moves[i]; }
+    }
+    return bestM;
+  }
+  // strong：反復深化 α-β（駒の価値＋玉の周りの守り＋成り駒・静止探索）。時間切れなら直前の深さの答え。
+  var maxD = opts.maxDepth || 8, timeMs = opts.timeMs === undefined ? 1000 : opts.timeMs;
+  _pos = true; _useQ = true; _aborted = false; _nodes = 0;
+  _deadline = timeMs === Infinity ? Infinity : Date.now() + timeMs;
+  orderMoves(S, moves);
+  var result = moves[0];
+  for (var d = 1; d <= maxD; d++){
+    var alpha = -Infinity, bm = null, bv = -Infinity;
+    for (i = 0; i < moves.length; i++){
+      cap = doMove(S, moves[i]);
+      v = -search(S, d - 1, -Infinity, -alpha, 1);
+      undoMove(S, moves[i], cap);
+      if (_aborted) break;
+      if (v > bv){ bv = v; bm = moves[i]; }
+      if (v > alpha) alpha = v;
+    }
+    if (_aborted) break;
+    result = bm;
+    moves.splice(moves.indexOf(bm), 1); moves.unshift(bm);
+    if (bv > MATE - 200 || bv < -MATE + 200) break;
+  }
+  _deadline = Infinity; _aborted = false; _pos = false; _useQ = false;
+  return result;
+}
+// ---- 手合割（駒落ち）：上手＝後手側（△・盤の上）が駒を落とし、必ず上手から指し始める ----
+// 日本将棋連盟「将棋の基礎知識 6.実戦」(https://www.shogi.or.jp/knowledge/shogi/06.php) の定義：
+//   香落ち＝左の香（角のある側）／角落ち＝角／飛落ち＝飛／飛香落ち＝飛と香／二枚落ち＝飛と角／
+//   四枚落ち＝飛・角・香2／六枚落ち＝+桂2／八枚落ち＝+銀2。駒落ちは必ず上手から指す。
+// [段, 列] は上手（後手）の初期位置。後手の飛(1,1)・角(1,7)・香(0,0)(0,8)・桂(0,1)(0,7)・銀(0,2)(0,6)。
+// 右香落ち・十枚落ちは連盟の一次資料で確かめられなかったので入れていない。
+var HANDICAPS = [
+  {id: "hirate", name: "平手", rm: []},
+  {id: "kyo", name: "香落ち", rm: [[0,8]]},
+  {id: "kaku", name: "角落ち", rm: [[1,7]]},
+  {id: "hisha", name: "飛車落ち", rm: [[1,1]]},
+  {id: "hikyo", name: "飛香落ち", rm: [[1,1],[0,8]]},
+  {id: "nimai", name: "二枚落ち", rm: [[1,1],[1,7]]},
+  {id: "yonmai", name: "四枚落ち", rm: [[1,1],[1,7],[0,0],[0,8]]},
+  {id: "rokumai", name: "六枚落ち", rm: [[1,1],[1,7],[0,0],[0,8],[0,1],[0,7]]},
+  {id: "hachimai", name: "八枚落ち", rm: [[1,1],[1,7],[0,0],[0,8],[0,1],[0,7],[0,2],[0,6]]}
+];
+function handicapOf(id){
+  for (var i = 0; i < HANDICAPS.length; i++) if (HANDICAPS[i].id === id) return HANDICAPS[i];
+  return HANDICAPS[0];
+}
+function handicapSfen(id){
+  var hc = handicapOf(id);
+  if (!hc.rm.length) return START_SFEN;
+  var rows = START_SFEN.split(" ")[0].split("/"), grid = [], r, c, k;
+  for (r = 0; r < 9; r++){
+    var line = [];
+    for (k = 0; k < rows[r].length; k++){
+      var ch = rows[r].charAt(k);
+      if (ch >= "0" && ch <= "9"){ for (var z = 0; z < +ch; z++) line.push(""); } else line.push(ch);
+    }
+    grid.push(line);
+  }
+  for (k = 0; k < hc.rm.length; k++) grid[hc.rm[k][0]][hc.rm[k][1]] = "";
+  var out = [];
+  for (r = 0; r < 9; r++){
+    var s = "", run = 0;
+    for (c = 0; c < 9; c++){
+      if (grid[r][c] === "") run++; else { if (run) s += run; run = 0; s += grid[r][c]; }
+    }
+    if (run) s += run;
+    out.push(s);
+  }
+  return out.join("/") + " w - 1"; // 上手（後手）から
+}
+
+// ---- 練習問題（本対局と同じ legalMoves で判定する） ----
+// goal: exact＝ans の手／check＝王手になる手／mate＝詰ませる手／dropPawn＝歩を（合法に）打つ／block＝玉以外で王手を防ぐ手
+var PUZZLES = [
+  {id: "keima", title: "桂馬で駒を取る", sfen: "4k4/9/9/9/3p5/9/4N4/9/4K4 b - 1", goal: "exact", ans: [{f: 58, t: 39, p: 0}],
+    ask: "先手（下）の桂馬で、後手の歩を取ってください。桂馬は前へ2つ・左右へ1つ、間の駒を飛び越えて進めます。",
+    hint: "桂馬の動ける先は2か所です。そのうち、相手の歩がある方を選びます。"},
+  {id: "naru", title: "成る・成らないを選ぶ", sfen: "4k4/9/9/1S7/9/9/9/9/4K4 b - 1", goal: "exact", ans: [{f: 28, t: 19, p: 1}],
+    ask: "銀を1つ前（上）へ進めて、成ってください（敵陣＝相手側の3段に入ると成れます）。銀が成ると金と同じ動きになります。",
+    hint: "銀を押して1つ上のマスを押すと、［成る］［成らない］の選択が出ます。［成る］を押します。"},
+  {id: "check", title: "持ち駒を打って王手", sfen: "4k4/9/9/9/9/9/9/9/4K4 b G 1", goal: "check", 
+    ask: "持ち駒の金を打って、後手の玉に王手をかけてください（金は前・横・斜め前・後ろへ1つ動けます。玉に届く所に打ちます）。",
+    hint: "金は玉の隣のマスに届きます。玉の近くに打ちましょう。打てる所には緑の点が出ます。"},
+  {id: "nifu", title: "二歩になる所は打てない", sfen: "4k4/9/9/9/9/9/4P4/9/4K4 b P 1", goal: "dropPawn",
+    ask: "持ち駒の歩を打ってください。まず、すでに歩がある筋（5筋）に打とうとして、打てないことを確かめましょう。そのあと、ほかの筋に打てば終わりです。",
+    hint: "5筋には自分の歩があるので、そこには打てません（二歩）。別の筋のマスを押します。"},
+  {id: "tsume", title: "1手詰め", sfen: "4k4/9/3S5/9/9/9/9/9/8K b G 1", goal: "mate",
+    ask: "金を1枚打って、後手の玉を詰ませてください。玉が逃げられず、金も取られない所を探します（銀が金を守っています）。",
+    hint: "玉の真下に打つと、玉の逃げ道がすべてふさがります。銀が斜めに金を守っているので、玉は金を取れません。"},
+  {id: "aigoma", title: "合駒で王手を防ぐ", sfen: "4r3k/9/9/9/9/9/9/9/4K4 b G 1", goal: "block",
+    ask: "先手の玉が後手の飛車に王手されています。玉を動かさずに、持ち駒の金で防いでください（飛車と玉の間に打つ手を「合駒」といいます）。",
+    hint: "飛車は縦に利いています。飛車と玉の間のマスに金を打ちます。"}
+];
+// 判定：legalMoves に入る手だけが正しい。"ok"／"near"（行き先は合っているが成り・不成が違う）／"ng"
+function judgePuzzle(P, S, mv){
+  var from = mv & 255, to = (mv >> 8) & 255, pr = (mv >> 16) & 1, s = S.turn, i;
+  if (P.goal === "exact"){
+    var near = false;
+    for (i = 0; i < P.ans.length; i++){
+      if (P.ans[i].f === from && P.ans[i].t === to){ if (P.ans[i].p === pr) return "ok"; near = true; }
+    }
+    return near ? "near" : "ng";
+  }
+  if (P.goal === "dropPawn") return from === 101 ? "ok" : "ng";
+  if (P.goal === "block") return (from >= 100 || S.b[from] * s !== 8) ? "ok" : "ng";
+  var cap = doMove(S, mv), res = "ng";
+  if (P.goal === "check") res = inCheck(S, -s) ? "ok" : "ng";
+  else if (P.goal === "mate") res = (inCheck(S, -s) && !hasLegal(S)) ? "ok" : "ng";
+  undoMove(S, mv, cap);
+  return res;
+}
+// 指せない手の理由（練習用）。from＝盤上の升 0..80 または 100+駒の種類（打つ）
+function explainIllegal(S, from, to){
+  var s = S.turn, b = S.b, i;
+  if (from >= 100){
+    var t = from - 100, r = (to / 9) | 0;
+    if (b[to] !== 0) return "駒のある所には打てません。";
+    if (t === 1){
+      for (i = 0; i < 81; i++) if (b[i] === s && i % 9 === to % 9) return "二歩です。同じ筋に自分の歩（成っていない歩）が2枚になる所には打てません。";
+    }
+    if ((t <= 2 && (s === 1 ? r === 0 : r === 8)) || (t === 3 && (s === 1 ? r <= 1 : r >= 7))) return "行き所のない駒になるので打てません（その駒は、そこから先へ動けなくなります）。";
+    var cap = doMove(S, (from) | (to << 8)), bad = inCheck(S, s), mated = t === 1 && inCheck(S, -s) && !hasLegal(S);
+    undoMove(S, (from) | (to << 8), cap);
+    if (bad) return "王手を受けたままになるので打てません。";
+    if (mated) return "打ち歩詰めです。持ち駒の歩を打って詰ませるのは反則です。";
+    return "そこには打てません。";
+  }
+  var out = [];
+  genPseudo(S, out);
+  for (i = 0; i < out.length; i++) if ((out[i] & 255) === from && ((out[i] >> 8) & 255) === to) return "その手を指すと、自分の玉が王手のままになる（または取られる）ので指せません。";
+  return "その駒はそこへは動けません。";
+}
+
+// ---- 友だちと対局（shared/friendplay.js）に渡す adapter ----
+// 手は USI の文字列で記録する：盤上の手 "7g7f"（筋 1〜9＋段 a〜i）・成る手は末尾に "+"（"8h2b+"）・打つ手 "P*5e"（駒の字 P L N S G B R）。
+// 局面は対局（newGameFrom の形：S・hist・moves・over・winner・reason）に手合割の id（hc）を足したもの。play は入力を書き換えない。
+// 終局の扱いはローカルの対局（updateResult）と同じ：詰み＝勝ち／千日手＝引き分け／連続王手の千日手＝王手をかけ続けた側の負け。入玉宣言・持将棋は無い。
+var USI_RANKS = "abcdefghi", USI_PIECES = "PLNSGBR";
+function usiSq(i){ return String(9 - (i % 9)) + USI_RANKS.charAt((i / 9) | 0); }
+function usiSqIdx(s){ return /^[1-9][a-i]$/.test(s) ? USI_RANKS.indexOf(s.charAt(1)) * 9 + (9 - (+s.charAt(0))) : -1; }
+function moveToUsi(mv){
+  var from = mv & 255, to = (mv >> 8) & 255, pr = (mv >> 16) & 1;
+  if (from >= 100) return USI_PIECES.charAt(from - 101) + "*" + usiSq(to);
+  return usiSq(from) + usiSq(to) + (pr ? "+" : "");
+}
+// 形だけを見て内部の手（整数）にする。形が違えば -1（合法かどうかは見ない）
+function usiToMove(s){
+  if (typeof s !== "string") return -1;
+  var m = /^([1-9][a-i])([1-9][a-i])(\+?)$/.exec(s);
+  if (m){
+    var f = usiSqIdx(m[1]), t = usiSqIdx(m[2]);
+    return f === t ? -1 : f | (t << 8) | (m[3] ? 1 << 16 : 0);
+  }
+  m = /^([PLNSGBR])\*([1-9][a-i])$/.exec(s);
+  return m ? (101 + USI_PIECES.indexOf(m[1])) | (usiSqIdx(m[2]) << 8) : -1;
+}
+// 友だち対局の手合割の id（"" が平手）。知らない id は平手（handicapOf と同じ扱い）
+function shogiHc(h){
+  for (var i = 1; i < HANDICAPS.length; i++) if (HANDICAPS[i].id === h) return h;
+  return "";
+}
+function shogiStateFrom(sfen, hc){ var G = newGameFrom(sfen); G.hc = hc || ""; return G; }
+function copyGame(G){
+  return {S: copyState(G.S), hist: G.hist.slice(), moves: G.moves.slice(), over: G.over, winner: G.winner, reason: G.reason, hc: G.hc || ""};
+}
+var SHOGI_ADAPTER = {
+  id: "shogi",
+  // 平手は id ""（友だち対局の決まり）。駒落ちの8種は HANDICAPS の id と名前をそのまま
+  handicaps: HANDICAPS.map(function(h, i){ return {id: i ? h.id : "", label: h.name}; }),
+  // first＝▲（盤の下・平手の先手／駒落ちの下手）、second＝△（平手の後手／駒落ちの上手＝先に指す）
+  sideLabel: function(side, hc){
+    var d = shogiHc(hc || "") !== "";
+    return side === "first" ? (d ? "下手（▲）" : "先手（▲）") : (d ? "上手（△・先に指す）" : "後手（△）");
+  },
+  initial: function(hc){ var id = shogiHc(hc || ""); return shogiStateFrom(handicapSfen(id || "hirate"), id); },
+  play: function(st, usi){
+    if (!st || st.over) return null;
+    var mv = usiToMove(usi);
+    if (mv < 0) return null;
+    var out = []; genPseudo(st.S, out);
+    if (out.indexOf(mv) < 0) return null;            // 動けない所・二歩・行き所の無い駒・成れない所での成り
+    var G = copyGame(st), cap = tryMove(G.S, mv);
+    if (cap === ILLEGAL) return null;                // 王手放置・打ち歩詰め
+    undoMove(G.S, mv, cap);
+    gamePlay(G, mv);
+    return G;
+  },
+  turn: function(st){ return st.S.turn === 1 ? "first" : "second"; },
+  result: function(st){
+    if (!st.over) return null;
+    return {winner: st.winner === 1 ? "first" : st.winner === -1 ? "second" : "draw", text: st.reason + "（" + st.moves.length + "手）"};
+  }
+};
+// ===== LOGIC-END =====
+
+// ===== FRIENDPLAY-BEGIN（元＝shared/friendplay.js。直すのは元のファイルで、`python shared/embed.py` で4つのページに配る）=====
+// 友だちと対局：claude.ai の Artifact の db（見る人どうしで共有する記録）と user（いま見ている人）で、
+// 対局の一覧・手の記録・レーティング（イロ式）を受け持つ。盤の描き方と手の正しさは各ゲームの adapter に任せる。
+//   adapter = { id, sideLabel(side, handicap, rule), handicaps:[{id,label}], rules:[{id,label}]（任意）, initial(handicap, rule),
+//               play(state, move)→新しい局面 or null, turn(state)→"first"|"second", result(state)→null | {winner:"first"|"second"|"draw", text} }
+//   先手・後手は adapter の言い方で「first」「second」。handicaps と rules の先頭（id ""）が平手・既定。ハンデ戦はレーティングに入れない。
+// 2026-10-26 Claude（Opus）。萩野「ログイン機能とかレーティングもつけて友達同士で対戦させると面白い」。
+var FriendPlay = (function(){
+  var K = 32, START = 1500, LEASE_MS = 3000;
+
+  function now(){ return new Date().toISOString(); }
+  function other(side){ return side === "first" ? "second" : "first"; }
+  function fail(code, message){ var e = new Error(message); e.code = code; return e; }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function seatOf(g, key){ return !g || !g.seats ? null : g.seats.first === key ? "first" : g.seats.second === key ? "second" : null; }
+
+  // 手の列を最初から並べ直す。返す：{state, bad（正しくない手の位置・無ければ -1）}
+  function replay(adapter, g){
+    var st = adapter.initial(g.handicap || "", g.rule || ""), moves = g.moves || [];
+    for (var i = 0; i < moves.length; i++){
+      var ns = adapter.play(st, moves[i]);
+      if (!ns) return {state: st, bad: i};
+      st = ns;
+    }
+    return {state: st, bad: -1};
+  }
+
+  // レーティング：終わった平手の対局を終わった順に並べ、毎回最初から数え直す（各自が点を書かない＝二重に数えない）
+  function ratings(games){
+    var done = games.filter(function(g){
+      return g && g.status === "done" && g.rated && g.result && g.finishedAt && g.seats &&
+        g.seats.first && g.seats.second && g.seats.first !== g.seats.second;
+    }).slice().sort(function(a, b){
+      if (a.finishedAt !== b.finishedAt) return a.finishedAt < b.finishedAt ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    var table = {}, delta = {};
+    function get(k){ return table[k] || (table[k] = {r: START, n: 0, w: 0, l: 0, d: 0}); }
+    done.forEach(function(g){
+      var a = get(g.seats.first), b = get(g.seats.second);
+      var ea = 1 / (1 + Math.pow(10, (b.r - a.r) / 400));
+      var sa = g.result.winner === "first" ? 1 : g.result.winner === "second" ? 0 : 0.5;
+      var da = K * (sa - ea);
+      a.r += da; b.r -= da; a.n++; b.n++;
+      if (sa === 1){ a.w++; b.l++; } else if (sa === 0){ a.l++; b.w++; } else { a.d++; b.d++; }
+      delta[g.id] = {first: da, second: -da};
+    });
+    return {table: table, delta: delta};
+  }
+
+  // 同じ対局に2人が同時に書かないよう、短い札（lease）を取ってから最新を読み、書く
+  async function withLease(ref, holder, fn){
+    for (var t = 0; t < 8; t++){
+      var l = await ref.acquire({holder: holder, ttlMs: LEASE_MS});
+      if (l && l.acquired){
+        var s = await ref.get();
+        return await fn(s.exists ? s.data() : null);
+      }
+      await sleep(400 + Math.random() * 600);
+    }
+    throw fail("busy", "相手が書き込み中です。少し待ってからもう一度押してください。");
+  }
+
+  async function create(db, me, adapter, opt){
+    var side = opt.side === "random" ? (Math.random() < 0.5 ? "first" : "second") : opt.side;
+    var seats = {first: null, second: null}, t = now();
+    seats[side] = me.key;
+    var ref = db.collection("games").doc();
+    await ref.set({v: 1, game: adapter.id, status: "open", createdBy: me.key, createdAt: t, updatedAt: t,
+      seats: seats, handicap: opt.handicap || "", rule: opt.rule || "", rated: !opt.handicap, moves: [], result: null});
+    return ref.id;
+  }
+
+  async function join(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "この対局はもう始まったか、なくなりました。");
+      if (seatOf(g, me.key)) throw fail("self", "自分で作った対局です。相手が入るのを待ってください。");
+      var side = g.seats.first ? "second" : "first", t = now(), patch = {status: "playing", startedAt: t, updatedAt: t, seats: {}};
+      patch.seats[side] = me.key;
+      await ref.update(patch);
+      return side;
+    });
+  }
+
+  async function move(db, me, adapter, gid, mv, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var rp = replay(adapter, g);
+      if (rp.bad >= 0) throw fail("broken", "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。");
+      if (adapter.turn(rp.state) !== side) throw fail("notturn", "相手の番です。");
+      var ns = adapter.play(rp.state, mv);
+      if (!ns) throw fail("illegal", "その手は指せません。");
+      var t = now(), res = adapter.result(ns), patch = {moves: (g.moves || []).concat([mv]), updatedAt: t};
+      if (res){ patch.status = "done"; patch.finishedAt = t; patch.result = {winner: res.winner, reason: "end", text: res.text || ""}; }
+      await ref.update(patch);
+      return patch;
+    });
+  }
+
+  async function resign(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var t = now();
+      await ref.update({status: "done", finishedAt: t, updatedAt: t, result: {winner: other(side), reason: "resign", text: ""}});
+    });
+  }
+
+  async function cancel(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "もう始まった対局は取り消せません（投了はできます）。");
+      if (g.createdBy !== me.key) throw fail("notmine", "作った人だけが取り消せます。");
+      await ref.delete();
+    });
+  }
+
+  // ===== 画面（一覧・自分の名前・新しい対局・レーティング・対局中の帯）=====
+  function mount(opt){
+    var adapter = opt.adapter, root = opt.root, onView = opt.onView || function(){};
+    var tab = Math.random().toString(36).slice(2, 10);
+    var db = null, me = null, holder = "", booted = false, readOnly = false;
+    var games = [], names = {}, rate = {table: {}, delta: {}}, current = null, note = "", busy = false, resignArmed = null;
+
+    function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    function btn(text, fn, primary){ var b = el("button", primary ? "primary" : "", text); b.type = "button"; b.disabled = busy || readOnly; b.addEventListener("click", fn); return b; }
+    function nameOf(key){ return !key ? "（空き）" : (names[key] || "名前なし") + (me && key === me.key ? "（あなた）" : ""); }
+    function sideText(side, g){ return adapter.sideLabel(side, g ? g.handicap || "" : "", g ? g.rule || "" : ""); }
+    function label(list, id){ var f = (list || []).filter(function(x){ return x.id === id; })[0]; return f ? f.label : ""; }
+    function rr(key){ var x = rate.table[key]; return x ? Math.round(x.r) : START; }
+
+    function localKey(){
+      var k = null;
+      try { k = localStorage.getItem("friendplay.key"); } catch (e) {}
+      if (!k){ k = "g-" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); try { localStorage.setItem("friendplay.key", k); } catch (e) {} }
+      return k;
+    }
+
+    async function boot(){
+      if (booted) return; booted = true;
+      note = "つないでいます…"; draw();
+      var c = typeof window !== "undefined" ? window.claude : null;
+      if (!c || !c.use){ note = "友だちとの対局は、claude.ai でこのページを開いたときだけ使えます。"; draw(); return; }
+      db = await c.use("db");
+      var user = await c.use("user");
+      if (!db){ note = "友だちとの対局は、claude.ai にログインして開いたときだけ使えます。"; draw(); return; }
+      var id = user ? await user.id() : null;
+      me = {key: id || localKey()};
+      holder = me.key + ":" + tab;
+      var w = user ? await user.can("data.write") : null;
+      if (w === false) readOnly = true;
+      note = "";
+      db.collection("games").orderBy("createdAt", "desc").limit(1000).onSnapshot(function(snap){
+        games = snap.docs.map(function(d){ var x = {}, b = d.data(); for (var k in b) x[k] = b[k]; x.id = d.id; return x; });
+        rate = ratings(games);
+        draw(); emit();
+      }, function(e){ note = "記録を読めなくなりました（" + e.code + "）。ページを開き直してください。"; draw(); });
+      db.collection("players").onSnapshot(function(snap){
+        names = {};
+        snap.docs.forEach(function(d){ var b = d.data(); if (b && typeof b.name === "string") names[d.id] = b.name.slice(0, 16); });
+        draw(); emit();
+      }, function(){});
+    }
+
+    async function run(fn){
+      if (busy) return;
+      busy = true; note = ""; draw();
+      try { await fn(); }
+      catch (e){
+        if (e && e.code === "invalid_argument"){ readOnly = true; note = "この画面からは書き込めません（見るだけ）。対局するには、ページの持ち主に『編集者』としてメールで招いてもらってください。"; }
+        else note = (e && e.message) || "うまくいきませんでした。";
+      }
+      busy = false; draw(); emit();
+    }
+
+    function view(){
+      if (!current) return null;
+      var g = games.filter(function(x){ return x.id === current; })[0];
+      if (!g) return {gid: current, gone: true, statusText: "この対局は取り消されました。"};
+      var rp = replay(adapter, g), side = me ? seatOf(g, me.key) : null, turn = adapter.turn(rp.state);
+      var canMove = g.status === "playing" && side === turn && rp.bad < 0 && !busy && !readOnly;
+      var t;
+      if (rp.bad >= 0) t = "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。この対局は続けられません。";
+      else if (g.status === "open") t = side ? "相手を待っています。友だちがこのページを開いて『参加する』を押すと始まります。" : "まだ相手が決まっていません。";
+      else if (g.status === "playing") t = canMove ? "あなたの番です：" + sideText(side, g) + "。" : side ? "相手の番です：" + nameOf(g.seats[other(side)]) + "。指されると盤が自動で進みます。" : "観戦中：" + sideText(turn, g) + "の番です。";
+      else {
+        var r = g.result || {}, wtxt = r.winner === "draw" ? "引き分け" : sideText(r.winner, g) + "・" + nameOf(g.seats[r.winner]) + "の勝ち";
+        t = "終局" + (r.text ? "　" + r.text : "") + "　" + wtxt + (r.reason === "resign" ? "（投了）" : "");
+        var d = rate.delta[g.id];
+        if (d && side) t += "　レート " + (d[side] >= 0 ? "+" : "") + Math.round(d[side]);
+        else if (!g.rated) t += "（ハンデ戦なのでレーティングには入れません）";
+      }
+      return {gid: g.id, game: g, state: rp.state, mySide: side, canMove: canMove, statusText: t,
+        players: {first: nameOf(g.seats.first), second: nameOf(g.seats.second)}};
+    }
+    function emit(){ onView(current ? view() : null); }
+
+    function row(g){
+      var li = el("li", "fp-row"), side = me ? seatOf(g, me.key) : null;
+      var who = sideText("first", g) + " " + nameOf(g.seats.first) + " ／ " + sideText("second", g) + " " + nameOf(g.seats.second);
+      var extra = [g.rule ? label(adapter.rules, g.rule) : "", g.handicap ? label(adapter.handicaps, g.handicap) : ""].filter(Boolean).join("・");
+      li.appendChild(el("span", "fp-who", who + (extra ? "（" + extra + "）" : "") + (g.status === "playing" ? "　" + (g.moves || []).length + "手" : "")));
+      var acts = el("span", "fp-acts");
+      if (g.status === "open"){
+        if (side) acts.appendChild(btn("取り消す", function(){ run(function(){ return cancel(db, me, g.id, holder); }); }));
+        else acts.appendChild(btn("参加する", function(){ run(async function(){ await join(db, me, g.id, holder); current = g.id; }); }, true));
+        if (side){ var o = btn("開く", function(){ current = g.id; draw(); emit(); }); o.disabled = false; acts.appendChild(o); }
+      } else {
+        var b = btn(side && g.status === "playing" ? "続ける" : g.status === "playing" ? "観戦する" : "盤を見る", function(){ current = g.id; draw(); emit(); }, side && g.status === "playing");
+        b.disabled = false; acts.appendChild(b);
+      }
+      li.appendChild(acts);
+      return li;
+    }
+
+    function draw(){
+      if (!root) return;
+      root.textContent = "";
+      var box = el("div", "fp-box"); // "fp" は将棋の図の CSS と同じ名前になるので使わない
+      function pair(lab, ctl){ var s = el("span", "fp-pair"); s.appendChild(lab); s.appendChild(ctl); return s; }
+      box.appendChild(el("h2", "fp-h", "友だちと対局"));
+      if (note) box.appendChild(el("p", "fp-note", note));
+      if (!db || !me){ root.appendChild(box); return; }
+      if (readOnly) box.appendChild(el("p", "fp-note", "この画面からは書き込めません（見るだけ）。観戦とレーティングは見られます。"));
+
+      if (current){
+        var v = view(), bar = el("div", "fp-bar");
+        if (v && v.game){
+          bar.appendChild(el("p", "fp-who", sideText("first", v.game) + "：" + v.players.first + "（" + rr(v.game.seats.first) + "）"));
+          bar.appendChild(el("p", "fp-who", sideText("second", v.game) + "：" + v.players.second + "（" + rr(v.game.seats.second) + "）"));
+        }
+        var acts = el("div", "fp-acts");
+        if (v && v.game && v.game.status === "playing" && v.mySide){
+          acts.appendChild(btn("投了する", function(){
+            // 確認の窓（confirm）は出さない＝2度押しで投了
+            if (resignArmed !== current){ resignArmed = current; note = "もう一度『投了する』を押すと投了します。"; draw(); return; }
+            resignArmed = null; run(function(){ return resign(db, me, current, holder); });
+          }));
+        }
+        var back = btn("一覧へ戻る", function(){ current = null; resignArmed = null; note = ""; draw(); emit(); });
+        back.disabled = false; acts.appendChild(back);
+        bar.appendChild(acts);
+        box.appendChild(bar);
+        root.appendChild(box);
+        return;
+      }
+
+      // 自分の名前
+      var nm = el("div", "fp-sec"), lab = el("label", "", "あなたの名前（相手に見えます）"), inp = el("input");
+      inp.type = "text"; inp.maxLength = 16; inp.value = names[me.key] || ""; inp.id = "fp-name-" + tab; lab.htmlFor = inp.id;
+      nm.appendChild(lab); nm.appendChild(inp);
+      nm.appendChild(btn("名前を保存", function(){
+        var s = inp.value.trim().slice(0, 16);
+        if (!s){ note = "名前を入れてください。"; draw(); return; }
+        run(function(){ return db.doc("players/" + me.key).set({name: s, updatedAt: now()}); });
+      }));
+      box.appendChild(nm);
+
+      // 新しい対局
+      var nw = el("div", "fp-sec");
+      nw.appendChild(el("h3", "", "新しい対局を作って待つ"));
+      var sideSel = el("select"); sideSel.id = "fp-side-" + tab;
+      [["first", sideText("first", null)], ["second", sideText("second", null)], ["random", "おまかせ"]].forEach(function(o){ var op = el("option", "", o[1]); op.value = o[0]; sideSel.appendChild(op); });
+      var sl = el("label", "", "あなたは"); sl.htmlFor = sideSel.id;
+      nw.appendChild(pair(sl, sideSel));
+      var hcSel = null, ruleSel = null;
+      if (adapter.rules && adapter.rules.length){
+        ruleSel = el("select"); ruleSel.id = "fp-rule-" + tab;
+        adapter.rules.forEach(function(r){ var op = el("option", "", r.label); op.value = r.id; ruleSel.appendChild(op); });
+        var rl = el("label", "", "ルール"); rl.htmlFor = ruleSel.id;
+        nw.appendChild(pair(rl, ruleSel));
+      }
+      if (adapter.handicaps && adapter.handicaps.length){
+        hcSel = el("select"); hcSel.id = "fp-hc-" + tab;
+        adapter.handicaps.forEach(function(h){ var op = el("option", "", h.label); op.value = h.id; hcSel.appendChild(op); });
+        var hl = el("label", "", "ハンデ"); hl.htmlFor = hcSel.id;
+        nw.appendChild(pair(hl, hcSel));
+        hcSel.addEventListener("change", function(){
+          var h = hcSel.value;
+          [].forEach.call(sideSel.options, function(op){ if (op.value !== "random") op.textContent = adapter.sideLabel(op.value, h, ruleSel ? ruleSel.value : ""); });
+        });
+      }
+      nw.appendChild(btn("作って待つ", function(){
+        if (!names[me.key]){ note = "先に、あなたの名前を保存してください。"; draw(); return; }
+        var o = {side: sideSel.value, handicap: hcSel ? hcSel.value : "", rule: ruleSel ? ruleSel.value : ""};
+        run(async function(){ current = await create(db, me, adapter, o); });
+      }, true));
+      box.appendChild(nw);
+
+      // 一覧
+      var open = games.filter(function(g){ return g.status === "open"; });
+      var playing = games.filter(function(g){ return g.status === "playing"; });
+      var done = games.filter(function(g){ return g.status === "done"; }).slice(0, 10);
+      [["相手を待っている対局", open, "いまは、ありません。"], ["対局中", playing, "いまは、ありません。"], ["終わった対局（新しい順に10）", done, "まだ、ありません。"]].forEach(function(s){
+        var sec = el("div", "fp-sec");
+        sec.appendChild(el("h3", "", s[0]));
+        if (!s[1].length) sec.appendChild(el("p", "fp-empty", s[2]));
+        else { var ul = el("ul", "fp-list"); s[1].forEach(function(g){ ul.appendChild(row(g)); }); sec.appendChild(ul); }
+        box.appendChild(sec);
+      });
+
+      // レーティング
+      var rs = el("div", "fp-sec");
+      rs.appendChild(el("h3", "", "レーティング"));
+      var keys = Object.keys(rate.table).sort(function(a, b){ return rate.table[b].r - rate.table[a].r; });
+      if (!keys.length) rs.appendChild(el("p", "fp-empty", "平手の対局が1局終わると出ます（はじめは全員 1500）。"));
+      else {
+        var tw = el("div", "fp-tablewrap"), tb = el("table", "fp-table"), hd = el("tr");
+        ["順位", "名前", "レート", "成績"].forEach(function(h){ hd.appendChild(el("th", "", h)); });
+        tb.appendChild(hd);
+        keys.forEach(function(k, i){
+          var x = rate.table[k], tr = el("tr");
+          [String(i + 1), nameOf(k), String(Math.round(x.r)) + (x.n < 5 ? "（仮）" : ""), x.w + "勝" + x.l + "敗" + (x.d ? x.d + "分" : "")].forEach(function(c){ tr.appendChild(el("td", "", c)); });
+          tb.appendChild(tr);
+        });
+        tw.appendChild(tb); rs.appendChild(tw);
+      }
+      rs.appendChild(el("p", "fp-empty", "イロ式（はじめは 1500・1局で最大 ±32 動く）。5局までは（仮）。ハンデ戦は入れません。"));
+      box.appendChild(rs);
+
+      var dt = el("details", "fp-sec"), sm = el("summary", "", "友だちと遊ぶための準備（ページの持ち主がすること）");
+      dt.appendChild(sm);
+      ["1. 友だちにも claude.ai のアカウントが要ります（無料でよい）。",
+       "2. ページの右上の［共有］から、友だちのメールアドレスを『編集者』で招きます。招かれた人だけが手を指せます。",
+       "3. 公開リンク（だれでも見られる共有）を同時に出すと、外から招いた人は書き込めなくなります。対局に使うページは、リンクで共有しないでください。",
+       "4. 記録はこのページの中だけにあります。名前とレートは、ほかのゲームのページとは別です。"].forEach(function(s){ dt.appendChild(el("p", "", s)); });
+      box.appendChild(dt);
+      root.appendChild(box);
+    }
+
+    return {
+      show: function(){ if (root) root.hidden = false; draw(); boot(); emit(); },
+      hide: function(){ if (root) root.hidden = true; onView(null); },
+      active: function(){ return !!current; },
+      submit: function(mv){ if (!current || !db) return Promise.resolve(); var gid = current; return run(function(){ return move(db, me, adapter, gid, mv, holder); }); }
+    };
+  }
+
+  var CSS = ".fp-h{font-size:18px;margin:2px 0 6px}.fp-box h3{font-size:16px;margin:10px 0 4px}" +
+    ".fp-pair{display:inline-flex;align-items:center;gap:6px;max-width:100%;margin-right:8px}.fp-pair select{max-width:calc(100vw - 120px)}" +
+    ".fp-note{margin:6px 0;padding:6px 8px;border:1px solid var(--line,currentColor);border-radius:8px}" +
+    ".fp-sec{margin:8px 0}.fp-sec label{margin-right:6px}.fp-sec input{font:inherit;font-size:16px;min-height:44px;padding:4px 8px;border-radius:8px;border:1px solid var(--line,#999);background:transparent;color:inherit;max-width:100%}" +
+    ".fp-sec select,.fp-sec button,.fp-acts button{margin:4px 6px 4px 0}" +
+    ".fp-list{list-style:none;margin:0;padding:0}.fp-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px;padding:6px 0;border-top:1px solid var(--line,#ccc)}" +
+    ".fp-who{margin:2px 0;overflow-wrap:anywhere}.fp-empty{margin:4px 0;font-size:14px;opacity:.85}" +
+    ".fp-tablewrap{overflow-x:auto;max-width:100%}.fp-table{border-collapse:collapse;font-size:15px;width:100%}.fp-table th,.fp-table td{border-bottom:1px solid var(--line,#ccc);padding:4px 6px;text-align:left}.fp-table td:nth-child(3),.fp-table td:nth-child(4){white-space:nowrap}" +
+    ".fp-bar{display:flex;flex-direction:column;gap:2px}";
+  if (typeof document !== "undefined"){ var st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st); }
+
+  return {mount: mount, replay: replay, ratings: ratings, create: create, join: join, move: move, resign: resign, cancel: cancel, START: START, K: K};
+})();
+// ===== FRIENDPLAY-END =====
+
+// ===== UI =====
+(function(){
+  if (typeof document === "undefined") return;
+  var $ = function(id){ return document.getElementById(id); };
+  var boardEl = $("board"), msgEl = $("msg");
+  var G, sel = null, pending = null, thinking = false, legal = [], flipped = false, token = 0;
+  var cells = [], i;
+
+  // ===== 説明の図（SVG・色はすべてトークン） =====
+  function pcSvg(r, c, text, s, prom){
+    return '<g transform="translate(' + (c + 0.5) + ' ' + (r + 0.5) + ')' + (s < 0 ? ' rotate(180)' : '') + '">' +
+      '<polygon class="fp" points="0,-.42 .3,-.28 .38,.4 -.38,.4 -.3,-.28"/>' +
+      '<text class="ft' + (prom ? ' prom' : '') + '" x="0" y=".08">' + text + '</text></g>';
+  }
+  function pc(r, c, text, s, prom){ return {r: r, c: c, p: text, s: s || 1, pr: !!prom}; }
+  function figSvg(sp){
+    var W = sp.c, H = sp.r, m = sp.coords ? 0.6 : 0.1, out = '', r, c, k;
+    out += '<svg class="fig" style="width:' + (sp.w || 130) + 'px" viewBox="' + (-m) + ' ' + (-m) + ' ' + (W + 2 * m) + ' ' + (H + 2 * m) +
+      '" role="img" aria-label="' + sp.label + '">';
+    var tint = {};
+    (sp.tint || []).forEach(function(q){ tint[q[0] * 20 + q[1]] = q[2]; });
+    for (r = 0; r < H; r++) for (c = 0; c < W; c++)
+      out += '<rect class="fb' + (tint[r * 20 + c] ? ' ' + tint[r * 20 + c] : '') + '" x="' + c + '" y="' + r + '" width="1" height="1"/>';
+    if (sp.coords){
+      for (c = 0; c < W; c++) out += '<text class="flab" x="' + (c + 0.5) + '" y="-0.15">' + (9 - c) + '</text>';
+      for (r = 0; r < H; r++) out += '<text class="flab" x="' + (W + 0.32) + '" y="' + (r + 0.62) + '">' + KAN.charAt(r + 1) + '</text>';
+    }
+    (sp.pcs || []).forEach(function(q){ out += pcSvg(q.r, q.c, q.p, q.s, q.pr); });
+    (sp.dots || []).forEach(function(q){ out += '<circle class="fdot" cx="' + (q[1] + 0.5) + '" cy="' + (q[0] + 0.5) + '" r=".15"/>'; });
+    (sp.rings || []).forEach(function(q){ out += '<circle class="fring" cx="' + (q[1] + 0.5) + '" cy="' + (q[0] + 0.5) + '" r=".4"/>'; });
+    (sp.xs || []).forEach(function(q){
+      var x = q[1] + 0.5, y = q[0] + 0.5;
+      out += '<path class="fx" d="M' + (x - 0.3) + ' ' + (y - 0.3) + 'L' + (x + 0.3) + ' ' + (y + 0.3) + 'M' + (x + 0.3) + ' ' + (y - 0.3) + 'L' + (x - 0.3) + ' ' + (y + 0.3) + '"/>';
+    });
+    (sp.arrows || []).forEach(function(a){
+      var x0 = a[1] + 0.5, y0 = a[0] + 0.5, x1 = a[3] + 0.5, y1 = a[2] + 0.5, dx = x1 - x0, dy = y1 - y0, L = Math.sqrt(dx * dx + dy * dy);
+      var ux = dx / L, uy = dy / L, nx = -uy, ny = ux, sh = 0.3;
+      var sx = x0 + ux * sh, sy = y0 + uy * sh, ex = x1 - ux * sh, ey = y1 - uy * sh;
+      function head(px, py, d){
+        var bx = px - d * ux * 0.28, by = py - d * uy * 0.28;
+        return '<polygon class="farh" points="' + px + ',' + py + ' ' + (bx + nx * 0.16) + ',' + (by + ny * 0.16) + ' ' + (bx - nx * 0.16) + ',' + (by - ny * 0.16) + '"/>';
+      }
+      out += '<line class="far" x1="' + sx + '" y1="' + sy + '" x2="' + ex + '" y2="' + ey + '"/>' + head(ex, ey, 1) + (a[4] ? head(sx, sy, -1) : '');
+    });
+    return out + '</svg>';
+  }
+  function dotsOf(f){ var a = []; for (var r = 0; r < 5; r++) for (var c = 0; c < 5; c++) if (!(r === 2 && c === 2) && f(r - 2, c - 2)) a.push([r, c]); return a; }
+  var S0 = parseSfen(START_SFEN), SETUP = [], TIPS = [];
+  (function(){
+    for (var q = 0; q < 81; q++){
+      var p = S0.b[q]; if (!p) continue;
+      var t = p > 0 ? p : -p, txt = t === 8 ? (p > 0 ? "玉" : "王") : DISP[t], r = (q / 9) | 0, c = q % 9;
+      SETUP.push(pc(r, c, txt, p > 0 ? 1 : -1));
+      if (r >= 5) TIPS.push(pc(r - 5, c, txt, 1));
+    }
+  })();
+  var FIGS = {
+    aim: {r: 3, c: 3, w: 130, label: "先手の金と銀で後手の玉が詰んでいる図", pcs: [pc(0, 1, "王", -1), pc(1, 1, "金"), pc(2, 2, "銀")]},
+    setup: {r: 9, c: 9, w: 300, coords: true, label: "将棋の初期配置", pcs: SETUP},
+    promo: {r: 5, c: 9, w: 300, label: "上3段（青）が後手側の陣地。先手の歩が敵陣へ進む図", tint: [0, 1, 2].reduce(function(a, r){ for (var c = 0; c < 9; c++) a.push([r, c, "tint"]); return a; }, []),
+      pcs: [pc(3, 4, "歩")], arrows: [[3, 4, 2, 4]]},
+    capture: {r: 3, c: 3, w: 120, label: "銀で相手の歩を取る図", pcs: [pc(2, 1, "銀"), pc(1, 1, "歩", -1)], rings: [[1, 1]], dots: [[1, 0], [1, 2]]},
+    drop: {r: 3, c: 3, w: 120, label: "持ち駒を打てる所（緑の点）の図", pcs: [pc(2, 1, "玉"), pc(0, 1, "王", -1)], dots: [[0, 0], [0, 2], [1, 0], [1, 1], [1, 2], [2, 0], [2, 2]]},
+    nifu: {r: 4, c: 3, w: 120, label: "歩のある筋には歩を打てない図", pcs: [pc(2, 1, "歩")], xs: [[0, 1], [1, 1], [3, 1]], dots: [[0, 0], [1, 0], [2, 0], [3, 0], [0, 2], [1, 2], [2, 2], [3, 2]]},
+    stuck: {r: 3, c: 3, w: 120, label: "一番奥の段と奥の2段には打てない図", tint: [[0, 0, "bad"], [0, 1, "bad"], [0, 2, "bad"], [1, 0, "bad"], [1, 1, "bad"], [1, 2, "bad"]], xs: [[0, 0], [0, 1], [0, 2]], dots: [[2, 0], [2, 1], [2, 2]]},
+    uchifu: {r: 3, c: 4, w: 160, label: "打ち歩詰めになる歩打ちの図", pcs: [pc(0, 0, "王", -1), pc(1, 2, "金"), pc(2, 1, "銀"), pc(1, 0, "歩")], xs: [[1, 0]]},
+    check: {r: 5, c: 3, w: 100, label: "飛車の王手を、逃げる・合駒で防ぐ図", pcs: [pc(0, 1, "飛", -1), pc(4, 1, "玉")], dots: [[1, 1], [2, 1], [3, 1], [4, 0], [4, 2]]},
+    sennichite: {r: 2, c: 3, w: 130, label: "玉が行って戻ってを繰り返す図", pcs: [pc(1, 0, "玉"), pc(0, 2, "王", -1)], arrows: [[1, 0, 1, 1, true]]},
+    tips: {r: 4, c: 9, w: 300, label: "自分の陣。角の前の歩と飛車の前の歩を進める矢印", pcs: TIPS, arrows: [[1, 7, 0, 7], [1, 2, 0, 2]]}
+  };
+  var MOVES = [
+    ["玉", "まわりの8方向に1マスずつ。取られると負けなので、一番大事な駒です。成れません。", {r: 3, c: 3, w: 100, label: "玉の動き", pcs: [pc(1, 1, "玉")], dots: [[0, 0], [0, 1], [0, 2], [1, 0], [1, 2], [2, 0], [2, 1], [2, 2]]}],
+    ["飛", "縦と横に何マスでも。間に駒があると飛び越せません。成ると龍。", {r: 5, c: 5, w: 120, label: "飛の動き", pcs: [pc(2, 2, "飛")], dots: dotsOf(function(a, b){ return a === 0 || b === 0; })}],
+    ["角", "斜めに何マスでも。飛び越せません。成ると馬。", {r: 5, c: 5, w: 120, label: "角の動き", pcs: [pc(2, 2, "角")], dots: dotsOf(function(a, b){ return a === b || a === -b; })}],
+    ["金", "前・横・斜め前・真後ろへ1マス（斜め後ろへは行けません）。成れません。", {r: 3, c: 3, w: 100, label: "金の動き", pcs: [pc(1, 1, "金")], dots: [[0, 0], [0, 1], [0, 2], [1, 0], [1, 2], [2, 1]]}],
+    ["銀", "前・斜め前・斜め後ろへ1マス（横と真後ろへは行けません）。成ると金の動き。", {r: 3, c: 3, w: 100, label: "銀の動き", pcs: [pc(1, 1, "銀")], dots: [[0, 0], [0, 1], [0, 2], [2, 0], [2, 2]]}],
+    ["桂", "前へ2つ・左右へ1つの2か所へ跳びます。間の駒を飛び越せる唯一の駒で、後ろへは進めません。成ると金の動き。", {r: 3, c: 3, w: 100, label: "桂の動き", pcs: [pc(2, 1, "桂")], dots: [[0, 0], [0, 2]]}],
+    ["香", "前へ何マスでも。飛び越せず、後ろへは戻れません。成ると金の動き。", {r: 4, c: 3, w: 100, label: "香の動き", pcs: [pc(3, 1, "香")], dots: [[0, 1], [1, 1], [2, 1]]}],
+    ["歩", "前へ1マス。取るときも前の1マスだけです。成ると「と」で金の動き。", {r: 2, c: 3, w: 100, label: "歩の動き", pcs: [pc(1, 1, "歩")], dots: [[0, 1]]}]
+  ];
+  (function(){
+    var h = "", k;
+    for (k = 0; k < MOVES.length; k++) h += '<div class="mvrow">' + figSvg(MOVES[k][2]) + '<p><b>' + MOVES[k][0] + '</b>　' + MOVES[k][1] + '</p></div>';
+    $("movesBox").innerHTML = h;
+    var spans = document.querySelectorAll("[data-fig]");
+    for (k = spans.length - 1; k >= 0; k--){
+      var nm = spans[k].getAttribute("data-fig");
+      if (FIGS[nm]) spans[k].outerHTML = figSvg(FIGS[nm]);
+    }
+  })();
+
+  // ===== やってみよう（練習問題）：本対局と同じ legalMoves・judgePuzzle で判定 =====
+  var pz = {i: 0, S: null, ls: [], sel: null, pend: null, done: false};
+  function pzMsg(h){ $("pzMsg").innerHTML = h; }
+  function pzFrom(){ return pz.sel ? (pz.sel.kind === "b" ? pz.sel.i : 100 + pz.sel.t) : -1; }
+  function pzLoad(i){
+    var n = PUZZLES.length;
+    pz.i = ((i % n) + n) % n;
+    var P = PUZZLES[pz.i];
+    pz.S = parseSfen(P.sfen); pz.ls = legalMoves(pz.S); pz.sel = null; pz.pend = null; pz.done = false;
+    $("pzTitle").firstChild.textContent = "第" + (pz.i + 1) + "問／" + n + "問　" + P.title;
+    $("pzAsk").textContent = P.ask;
+    $("pzPromo").hidden = true;
+    pzMsg("");
+    pzRender();
+  }
+  function pzRender(){
+    var S = pz.S, f = pzFrom(), dests = {}, k, d, out = '';
+    if (pz.sel && !pz.done) for (k = 0; k < pz.ls.length; k++) if ((pz.ls[k] & 255) === f) dests[(pz.ls[k] >> 8) & 255] = 1;
+    for (d = 0; d < 81; d++){
+      var r = (d / 9) | 0, c = d % 9;
+      out += '<rect class="fb' + (pz.sel && pz.sel.kind === "b" && pz.sel.i === d ? ' sel' : '') + '" x="' + c + '" y="' + r + '" width="1" height="1"/>';
+    }
+    for (d = 0; d < 81; d++){
+      var p = S.b[d]; if (!p) continue;
+      var t = p > 0 ? p : -p;
+      out += pcSvg((d / 9) | 0, d % 9, t === 8 ? (p > 0 ? "玉" : "王") : DISP[t], p > 0 ? 1 : -1, t > 8);
+    }
+    for (d = 0; d < 81; d++){
+      if (dests[d]){
+        var rr = (d / 9) | 0, cc = d % 9;
+        out += S.b[d] ? '<circle class="fring" cx="' + (cc + 0.5) + '" cy="' + (rr + 0.5) + '" r=".4"/>' : '<circle class="fdot" cx="' + (cc + 0.5) + '" cy="' + (rr + 0.5) + '" r=".15"/>';
+      }
+    }
+    for (d = 0; d < 81; d++) out += '<rect class="hit" data-i="' + d + '" x="' + (d % 9) + '" y="' + ((d / 9) | 0) + '" width="1" height="1"/>';
+    $("pboard").innerHTML = out;
+    var h = S.h[0], hh = "", any = false, t2;
+    for (t2 = 1; t2 <= 7; t2++){
+      if (!h[t2]) continue;
+      any = true;
+      hh += '<button type="button" class="hbtn' + (pz.sel && pz.sel.kind === "h" && pz.sel.t === t2 ? ' on' : '') + '" data-t="' + t2 + '"' + (pz.done ? ' disabled' : '') + ' aria-label="持ち駒 ' + NAMES[t2] + ' ' + h[t2] + '"><span class="g">' + DISP[t2] + '</span>' + (h[t2] > 1 ? '<span class="n">' + h[t2] + '</span>' : '') + '</button>';
+    }
+    $("pzHand").innerHTML = '<div class="lab">あなた（先手）の持ち駒</div><div class="items">' + (any ? hh : '<span class="none">なし</span>') + '</div>';
+  }
+  var PZ_GOOD = {
+    keima: "桂馬が前へ2つ・横へ1つ跳んで、歩を取りました。",
+    naru: "成りました。銀が金と同じ動きになりました。",
+    check: "王手です。金の動ける先に玉がいるので、次に玉が取られます。",
+    nifu: "二歩にならない筋に打てました。歩のある筋（成っていない歩）には、もう1枚歩を打てません。",
+    tsume: "詰みです。玉の逃げ道が全部ふさがれ、金も取れません。",
+    aigoma: "合駒です。飛車の利きの間に駒を置いて、王手を防げました。"
+  };
+  var PZ_NG = {
+    exact: "ちがいます。ヒントを見るか、やり直してみましょう。",
+    check: "王手になっていません。金は前・横・斜め前・後ろに1マスずつ動けます。玉に届く所に打ちましょう。",
+    mate: "詰みになっていません（玉が逃げられるか、金が取られます）。ヒントを見てみましょう。",
+    block: "玉が動いてしまっています。持ち駒を使って防いでみましょう。",
+    dropPawn: "歩を打ってください。"
+  };
+  function pzPlay(mv){
+    var P = PUZZLES[pz.i], res = judgePuzzle(P, pz.S, mv);
+    pz.sel = null; pz.pend = null; $("pzPromo").hidden = true;
+    if (res === "ok"){
+      doMove(pz.S, mv); pz.done = true; pz.ls = [];
+      pzMsg('<span class="ok">正解です！</span>　' + PZ_GOOD[P.id] + '［次の問題］へ進めます。');
+    } else if (res === "near"){
+      pzMsg("行き先は合っています。でも、成る・成らないの選び方が違います。もう一度どうぞ。");
+    } else pzMsg(PZ_NG[P.goal] || PZ_NG.exact);
+    pzRender();
+  }
+  function pzSquare(i){
+    if (pz.done || pz.pend) return;
+    var S = pz.S, f = pzFrom();
+    if (pz.sel){
+      var mvs = pz.ls.filter(function(mv){ return (mv & 255) === f && ((mv >> 8) & 255) === i; });
+      if (mvs.length === 1){ pzPlay(mvs[0]); return; }
+      if (mvs.length > 1){ pz.pend = mvs; $("pzPromo").hidden = false; pzRender(); return; }
+      if (pz.sel.kind === "b" && pz.sel.i === i){ pz.sel = null; pzMsg(""); pzRender(); return; }
+      if (S.b[i] > 0 && pz.sel.kind === "b"){ pz.sel = {kind: "b", i: i}; pzMsg(""); pzRender(); return; }
+      pzMsg("そこには指せません。" + explainIllegal(S, f, i));
+      pzRender(); return;
+    }
+    if (S.b[i] > 0){ pz.sel = {kind: "b", i: i}; pzMsg(""); pzRender(); }
+  }
+  $("pboard").addEventListener("click", function(e){
+    var t = e.target; if (!t || !t.getAttribute) return;
+    var d = t.getAttribute("data-i"); if (d !== null) pzSquare(+d);
+  });
+  $("pzHand").addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest(".hbtn") : null;
+    if (!b || pz.done || pz.pend) return;
+    var t = +b.getAttribute("data-t");
+    pz.sel = (pz.sel && pz.sel.kind === "h" && pz.sel.t === t) ? null : {kind: "h", t: t};
+    pzMsg(""); pzRender();
+  });
+  $("pzYes").addEventListener("click", function(){ if (pz.pend) pzPlay(pz.pend.filter(function(x){ return (x >> 16) & 1; })[0]); });
+  $("pzNo").addEventListener("click", function(){ if (pz.pend) pzPlay(pz.pend.filter(function(x){ return !((x >> 16) & 1); })[0]); });
+  $("pzHint").addEventListener("click", function(){ pzMsg("ヒント：" + PUZZLES[pz.i].hint); });
+  $("pzRetry").addEventListener("click", function(){ pzLoad(pz.i); });
+  $("pzNext").addEventListener("click", function(){ pzLoad(pz.i + 1); });
+  pzLoad(0);
+
+  // ===== 説明の開閉（覚えておく。使えないときは開いたまま） =====
+  (function(){
+    var gd = $("guide");
+    try { if (localStorage.getItem("shogi.guide.closed") === "1") gd.open = false; } catch (e) {}
+    gd.addEventListener("toggle", function(){ try { localStorage.setItem("shogi.guide.closed", gd.open ? "0" : "1"); } catch (e) {} });
+  })();
+
+  for (i = 0; i < 81; i++){
+    var bt = document.createElement("button");
+    bt.type = "button"; bt.className = "cell"; bt.setAttribute("data-d", i);
+    boardEl.appendChild(bt); cells.push(bt);
+  }
+  boardEl.addEventListener("click", function(e){
+    var t = e.target.closest(".cell"); if (!t) return;
+    var d = +t.getAttribute("data-d");
+    onSquare(flipped ? 80 - d : d);
+  });
+
+  // 友だちと対局（オンライン）：盤は記録から並べ直した局面（view.state）をそのまま描き、手は net.submit で記録へ送るだけ
+  var net = null, netView = null, netKey = "";
+  function netOn(){ return $("mode").value === "net"; }
+  function cpuOn(){ return $("mode").value === "cpu"; }
+  function myColor(){ return +$("me").value; }
+  function isCpuTurn(){ return cpuOn() && !G.over && G.S.turn === -myColor(); }
+  function canAct(){ return !G.over && !thinking && !isCpuTurn() && !pending && (!netOn() || !!(netView && netView.canMove)); }
+  function localHcap(){ return $("hc").value !== "hirate"; }
+  function isHcap(){ return netOn() ? !!G.hc : localHcap(); }
+  function sideName(s){ return isHcap() ? (s === 1 ? "下手（▲）" : "上手（△）") : (s === 1 ? "先手（▲）" : "後手（△）"); }
+  function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]; }); }
+  function updateMeLabels(){
+    var o = $("me").options;
+    o[0].textContent = localHcap() ? "下手（▲・駒を落とされた側）" : "先手（▲）";
+    o[1].textContent = localHcap() ? "上手（△・駒を落とした側）" : "後手（△）";
+  }
+  function fromOfSel(){ return sel ? (sel.kind === "b" ? sel.i : 100 + sel.t) : -1; }
+  function movesTo(sq){
+    var f = fromOfSel();
+    return legal.filter(function(mv){ return (mv & 255) === f && ((mv >> 8) & 255) === sq; });
+  }
+
+  function newGame(){
+    token++;
+    sel = null; pending = null; thinking = false;
+    $("cpuOpts").style.display = cpuOn() ? "" : "none";
+    $("hcRow").style.display = netOn() ? "none" : "";
+    $("localBtns").style.display = netOn() ? "none" : "";
+    if (netOn()){
+      if (!G) G = newGameFrom(START_SFEN);
+      if (!net) net = FriendPlay.mount({adapter: SHOGI_ADAPTER, root: $("fpRoot"), onView: onNetView});
+      net.show(); // すぐに onNetView が呼ばれて盤が描かれる
+      return;
+    }
+    if (net) net.hide();
+    netView = null; netKey = "";
+    G = newGameFrom(handicapSfen($("hc").value));
+    flipped = cpuOn() && myColor() === -1;
+    refresh(); maybeCpu();
+  }
+  function onNetView(v){
+    netView = v;
+    if (!netOn()) return;
+    var key = v && v.state ? v.gid + ":" + v.state.moves.length : "";
+    if (key !== netKey || !(v && v.canMove)){ sel = null; pending = null; } // 局面が変わったら選びかけの駒と成りの確認を消す
+    netKey = key;
+    if (v && v.state){ G = copyGame(v.state); flipped = v.mySide === "second"; } // 自分の側を手前に
+    else { G = newGameFrom(START_SFEN); flipped = false; }
+    refresh();
+  }
+  function refresh(){ legal = G.over ? [] : legalMoves(G.S); render(); }
+
+  function handHtml(side, bottom){
+    var h = G.S.h[side === 1 ? 0 : 1], html = "", any = false;
+    var active = canAct() && G.S.turn === side;
+    for (var t = 1; t <= 7; t++){
+      if (!h[t]) continue;
+      any = true;
+      html += '<button type="button" class="hbtn' + (sel && sel.kind === "h" && sel.t === t && G.S.turn === side ? " on" : "") +
+        '" data-side="' + side + '" data-t="' + t + '"' + (G.S.turn === side ? ' data-sq="hand-' + USI_PIECES.charAt(t - 1) + '"' : "") +
+        (active ? "" : " disabled") + ' aria-label="持ち駒 ' + NAMES[t] + ' ' + h[t] + '">' +
+        '<span class="g' + (bottom ? "" : " rot") + '">' + DISP[t] + '</span>' + (h[t] > 1 ? '<span class="n">' + h[t] + '</span>' : "") + '</button>';
+    }
+    return '<div class="lab">' + sideName(side) + 'の持ち駒</div><div class="items">' + (any ? html : '<span class="none">なし</span>') + '</div>';
+  }
+  function bindHands(){
+    var bs = document.querySelectorAll(".hbtn");
+    for (var k = 0; k < bs.length; k++) bs[k].onclick = onHand;
+  }
+  function onHand(e){
+    if (!canAct()) return;
+    var b = e.currentTarget, side = +b.getAttribute("data-side"), t = +b.getAttribute("data-t");
+    if (side !== G.S.turn) return;
+    sel = (sel && sel.kind === "h" && sel.t === t) ? null : {kind: "h", t: t};
+    render();
+  }
+
+  function render(){
+    var S = G.S, bottom = flipped ? -1 : 1, d, idx;
+    var dests = {}, f = fromOfSel();
+    if (sel && canAct()){
+      for (var k = 0; k < legal.length; k++) if ((legal[k] & 255) === f) dests[(legal[k] >> 8) & 255] = 1;
+    }
+    var lastTo = G.moves.length ? (G.moves[G.moves.length - 1].mv >> 8) & 255 : -1;
+    var kingChk = (!G.over || G.reason === "詰み") && inCheck(S, S.turn) ? S.kp[S.turn === 1 ? 0 : 1] : -1;
+    for (d = 0; d < 81; d++){
+      idx = flipped ? 80 - d : d;
+      var p = S.b[idx], el = cells[d], h = "";
+      if (p){
+        var t = p > 0 ? p : -p;
+        h += '<span class="pc' + ((p > 0 ? 1 : -1) !== bottom ? " rot" : "") + (t > 8 ? " prom" : "") + '"><span class="ch">' +
+          (t === 8 ? (p > 0 ? "玉" : "王") : DISP[t]) + '</span></span>';
+      }
+      if (dests[idx]) h += '<span class="hint' + (p ? " cap" : "") + '"></span>';
+      el.innerHTML = h;
+      var cl = "cell";
+      if (sel && sel.kind === "b" && sel.i === idx) cl += " sel";
+      if (idx === kingChk) cl += " chk";
+      if (idx === lastTo) cl += " last";
+      el.className = cl;
+      el.setAttribute("aria-label", sqName(idx) + (p ? " " + (p > 0 ? "先手" : "後手") + (p > 0 ? p : -p) : ""));
+      el.setAttribute("data-sq", usiSq(idx)); // USI と同じ升の名前（盤を逆さにしても、その升に写っている所）
+    }
+    $("handTop").innerHTML = handHtml(-bottom, false);
+    $("handBot").innerHTML = handHtml(bottom, true);
+    bindHands();
+
+    var t2;
+    if (netOn()){
+      // 文は友だち対局の部品（view.statusText・名前が入るので字のまま）＋将棋の一言
+      var live = !!(netView && netView.state && netView.game && netView.game.status === "playing");
+      t2 = esc(netView ? netView.statusText : "上の「友だちと対局」で、一覧から対局を選ぶか、新しい対局を作ってください。");
+      if (live && kingChk >= 0) t2 += "　<b>王手です！</b>";
+      if (live && G.hc && !G.moves.length) t2 += "（駒落ちは上手から指します）";
+      if (netView && netView.state && G.moves.length) t2 += "　最後の手：" + G.moves[G.moves.length - 1].text.slice(1);
+    } else if (G.over){
+      if (G.winner === 0) t2 = "引き分け（" + G.reason + "）";
+      else t2 = "<b>" + sideName(G.winner) + "の勝ち</b>（" + G.reason + "）";
+      if (cpuOn() && G.winner !== 0) t2 += G.winner === myColor() ? "　おめでとうございます！" : "　もう一度どうぞ。";
+    } else {
+      t2 = sideName(S.turn) + "の番です";
+      if (isHcap() && !G.moves.length) t2 += "（駒落ちは上手から指します）";
+      if (cpuOn()) t2 += isCpuTurn() ? "（コンピュータが考え中…）" : "（あなた）";
+      if (kingChk >= 0) t2 += "　<b>王手です！</b>";
+      if (G.moves.length) t2 += "　最後の手：" + G.moves[G.moves.length - 1].text.slice(1);
+    }
+    msgEl.innerHTML = t2;
+    $("promo").classList.toggle("show", !!pending);
+    $("undo").disabled = G.moves.length === 0 || thinking;
+    var kf = $("kifu"), kh = "";
+    for (var m = 0; m < G.moves.length; m++) kh += "<span>" + (m + 1) + " " + G.moves[m].text + "</span>";
+    kf.innerHTML = kh || '<span>まだ指していません</span>';
+    kf.scrollTop = kf.scrollHeight;
+  }
+
+  function onSquare(sq){
+    if (!canAct()) return;
+    var s = G.S.turn;
+    if (sel){
+      var mvs = movesTo(sq);
+      if (mvs.length === 1){ doPlay(mvs[0]); return; }
+      if (mvs.length > 1){ pending = mvs; render(); return; }
+    }
+    var p = G.S.b[sq];
+    if (p * s > 0 && !(sel && sel.kind === "b" && sel.i === sq)) sel = {kind: "b", i: sq};
+    else sel = null;
+    render();
+  }
+  function doPlay(mv){
+    if (netOn()){
+      // 自分では局面を進めない：記録へ送り、戻ってきた局面（onNetView）を描く
+      sel = null; pending = null;
+      if (net && netView && netView.canMove) net.submit(moveToUsi(mv));
+      render();
+      return;
+    }
+    gamePlay(G, mv); sel = null; pending = null;
+    refresh(); maybeCpu();
+  }
+  $("pYes").addEventListener("click", function(){
+    if (!pending) return;
+    var m = pending.filter(function(x){ return (x >> 16) & 1; })[0]; doPlay(m);
+  });
+  $("pNo").addEventListener("click", function(){
+    if (!pending) return;
+    var m = pending.filter(function(x){ return !((x >> 16) & 1); })[0]; doPlay(m);
+  });
+
+  function maybeCpu(){
+    if (!isCpuTurn()) return;
+    thinking = true; render();
+    var my = token;
+    setTimeout(function(){
+      if (my !== token) return;
+      var mv = chooseMove(G.S, $("lv").value);
+      thinking = false;
+      if (mv >= 0) gamePlay(G, mv);
+      refresh();
+    }, 60);
+  }
+  $("undo").addEventListener("click", function(){
+    if (netOn() || thinking || !G.moves.length) return;
+    if (cpuOn()){
+      do { gameUndo(G); } while (G.moves.length && G.S.turn !== myColor());
+    } else gameUndo(G);
+    sel = null; pending = null;
+    refresh(); maybeCpu();
+  });
+  $("reset").addEventListener("click", newGame);
+  ["mode", "me", "lv"].forEach(function(id){ $(id).addEventListener("change", newGame); });
+  HANDICAPS.forEach(function(h){
+    var o = document.createElement("option"); o.value = h.id; o.textContent = h.name; $("hc").appendChild(o);
+  });
+  $("hc").addEventListener("change", function(){ $("me").value = "1"; updateMeLabels(); newGame(); }); // 駒落ちは下手＝あなた・上手＝コンピュータが既定
+  $("recommend").addEventListener("click", function(){
+    $("mode").value = "cpu"; $("hc").value = "hirate"; $("me").value = "1"; $("lv").value = "weak";
+    updateMeLabels(); newGame();
+  });
+  updateMeLabels();
+  newGame();
+})();
+</script>
+</body>
+</html>

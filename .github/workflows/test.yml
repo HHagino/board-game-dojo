@@ -1,0 +1,67 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: unit (${{ matrix.test }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - othello/test.js
+          - chess/test.js
+          - chess/test_friendplay.js
+          - shogi/test.js
+          - shogi/test_friendplay.js
+          - go/test.js
+          - go/test_friendplay.js
+          - shared/test.js
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node ${{ matrix.test }}
+
+  embedded-copies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python shared/embed.py --check
+
+  crosscheck:
+    name: crosscheck (${{ matrix.game }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        game: [chess, shogi, go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-crosscheck.txt
+      - run: python crosscheck/check_${{ matrix.game }}.py
+      - run: python crosscheck/check_${{ matrix.game }}.py --controls
+
+  perft-othello:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node crosscheck/perft_othello.js 9
+      - run: node crosscheck/perft_othello.js --controls

@@ -1,0 +1,4 @@
+# 突き合わせ（crosscheck/）の相手。このリポジトリには含めない（試験のときに入れる）。
+chess==1.11.2          # python-chess・GPL-3.0-or-later
+python-shogi==1.1.1    # GPL-3.0-only
+sgfmill==1.1.1         # MIT

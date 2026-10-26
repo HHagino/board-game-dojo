@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オセロ道場</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 一列の盤面アプリ：設定 → 石の数 → 盤 → 操作。色はすべてトークンから */
+:root{
+  --bg:#f3f1ea; --fg:#222; --panel:#fff; --line:#cfcabb;
+  --board:#3f8f5a; --board-line:#2c6b42; --hint:rgba(255,255,255,.55);
+  --black:#161616; --white:#fafafa; --accent:#2a6fb0; --on-accent:#fff; --mark:#e0a000;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+    --board:#2f6e45; --board-line:#1f4a2f; --hint:rgba(255,255,255,.4);
+    --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+  --board:#2f6e45; --board-line:#1f4a2f; --hint:rgba(255,255,255,.4);
+  --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 "Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+  padding-block:12px 32px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  max-width:520px;margin:0 auto;-webkit-text-size-adjust:100%}
+h1{font-size:20px;margin:4px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+label{font-size:15px}
+select,button{font:inherit;font-size:16px;min-height:44px;padding:4px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button{cursor:pointer}
+button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+.score{display:flex;justify-content:space-between;align-items:center;font-size:17px;gap:6px}
+.score .side{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;border:2px solid transparent}
+.score .side.turn{border-color:var(--mark)}
+.dot{display:inline-block;width:20px;height:20px;border-radius:50%;border:1px solid #888}
+.dot.b{background:var(--black)} .dot.w{background:var(--white)}
+#msg{min-height:3.2em;font-size:16px;margin:6px 2px}
+#board{display:grid;grid-template-columns:repeat(8,1fr);width:min(100%, 480px);max-width:100%;aspect-ratio:1/1;margin:6px auto;
+  background:var(--board);border:3px solid var(--board-line);border-radius:6px;touch-action:manipulation}
+.cell{position:relative;border:1px solid var(--board-line);min-width:0;min-height:40px;display:flex;align-items:center;justify-content:center;
+  padding:0;margin:0;background:transparent;border-radius:0;cursor:pointer}
+.cell .disc{width:84%;height:84%;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.cell .disc.b{background:radial-gradient(circle at 35% 30%,#555,var(--black) 60%)}
+.cell .disc.w{background:radial-gradient(circle at 35% 30%,#fff,#d8d8d8 80%)}
+.cell .hint{width:26%;height:26%;border-radius:50%;background:var(--hint)}
+.cell.last::after{content:"";position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;background:var(--mark);border:1px solid #0006}
+.cell:focus-visible{outline:3px solid #fff;outline-offset:-3px}
+.cell:disabled{opacity:1}
+small{font-size:14px;color:inherit;opacity:.8}
+</style>
+</head>
+<body>
+<h1>オセロ道場</h1>
+
+<div class="panel">
+  <div class="row">
+    <label for="mode">あそび方</label>
+    <select id="mode">
+      <option value="cpu">コンピュータと対戦</option>
+      <option value="two">2人で1台</option>
+      <option value="net">友だちと対局（オンライン）</option>
+    </select>
+  </div>
+  <div class="row" id="cpuOpts" style="margin-top:6px">
+    <label for="me">あなたは</label>
+    <select id="me"><option value="1">先手（黒）</option><option value="-1">後手（白）</option></select>
+    <label for="lv">強さ</label>
+    <select id="lv"><option value="weak">弱い</option><option value="mid" selected>ふつう</option><option value="strong">強い</option></select>
+  </div>
+</div>
+
+<div class="panel" id="fpRoot" hidden></div>
+
+<div class="panel score" aria-live="polite">
+  <div class="side" id="sB"><span class="dot b"></span>黒 <b id="nB">2</b></div>
+  <div class="side" id="sW"><span class="dot w"></span>白 <b id="nW">2</b></div>
+</div>
+
+<div id="msg" role="status" aria-live="polite"></div>
+<div id="board" role="grid" aria-label="オセロの盤"></div>
+
+<div class="row" id="localBtns" style="margin-top:8px">
+  <button id="undo">待った</button>
+  <button id="reset" class="primary">最初から</button>
+</div>
+<p><small>緑の盤の白い点は置ける所、黄色い点は最後に置かれた所です。</small></p>
+
+<script>
+// ===== LOGIC-BEGIN (test.js はこの区間をそのまま読み込んで検査する) =====
+var BLACK = 1, WHITE = -1;
+var DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+// 位置の重み（角は大きく、角の隣は負、辺はやや正）
+var W = [
+  100,-25, 10,  5,  5, 10,-25,100,
+  -25,-50, -2, -2, -2, -2,-50,-25,
+   10, -2,  3,  1,  1,  3, -2, 10,
+    5, -2,  1,  0,  0,  1, -2,  5,
+    5, -2,  1,  0,  0,  1, -2,  5,
+   10, -2,  3,  1,  1,  3, -2, 10,
+  -25,-50, -2, -2, -2, -2,-50,-25,
+  100,-25, 10,  5,  5, 10,-25,100
+];
+
+function initBoard(){
+  var b = new Array(64).fill(0);
+  b[27] = WHITE; b[36] = WHITE; // d4, e5
+  b[28] = BLACK; b[35] = BLACK; // e4, d5
+  return b;
+}
+function flipsFor(board, idx, player){
+  if (board[idx] !== 0) return [];
+  var r0 = idx >> 3, c0 = idx & 7, out = [];
+  for (var d = 0; d < 8; d++){
+    var dr = DIRS[d][0], dc = DIRS[d][1], r = r0 + dr, c = c0 + dc, line = [];
+    while (r >= 0 && r < 8 && c >= 0 && c < 8 && board[r*8+c] === -player){
+      line.push(r*8+c); r += dr; c += dc;
+    }
+    if (line.length && r >= 0 && r < 8 && c >= 0 && c < 8 && board[r*8+c] === player){
+      for (var i = 0; i < line.length; i++) out.push(line[i]);
+    }
+  }
+  return out;
+}
+function legalMoves(board, player){
+  var m = [];
+  for (var i = 0; i < 64; i++){
+    if (board[i] === 0 && flipsFor(board, i, player).length) m.push(i);
+  }
+  return m;
+}
+function applyMove(board, idx, player){
+  var f = flipsFor(board, idx, player);
+  if (!f.length) return null;
+  var nb = board.slice();
+  nb[idx] = player;
+  for (var i = 0; i < f.length; i++) nb[f[i]] = player;
+  return nb;
+}
+function countDiscs(board){
+  var b = 0, w = 0;
+  for (var i = 0; i < 64; i++){ if (board[i] === BLACK) b++; else if (board[i] === WHITE) w++; }
+  return {b: b, w: w};
+}
+// 次に打つ人：player の相手→player の順で見て、打てる人を返す。両者打てなければ 0（終局）。
+function nextPlayer(board, justMoved){
+  if (legalMoves(board, -justMoved).length) return -justMoved;
+  if (legalMoves(board, justMoved).length) return justMoved;
+  return 0;
+}
+function isGameOver(board){
+  return legalMoves(board, BLACK).length === 0 && legalMoves(board, WHITE).length === 0;
+}
+function winner(board){
+  var c = countDiscs(board);
+  return c.b > c.w ? BLACK : (c.w > c.b ? WHITE : 0);
+}
+function coordName(idx){ return "abcdefgh".charAt(idx & 7) + String((idx >> 3) + 1); }
+
+// 評価：player から見た良さ
+function evaluate(board, player){
+  var pos = 0, i;
+  for (i = 0; i < 64; i++){
+    if (board[i] === player) pos += W[i]; else if (board[i] === -player) pos -= W[i];
+  }
+  var mm = legalMoves(board, player).length, om = legalMoves(board, -player).length;
+  var mob = (mm + om) ? 100 * (mm - om) / (mm + om) : 0;
+  return pos + mob * 0.5;
+}
+function terminalScore(board, player){
+  var c = countDiscs(board);
+  return (player === BLACK ? c.b - c.w : c.w - c.b) * 1000;
+}
+var _deadline = Infinity, _aborted = false, _nodes = 0;
+function negamax(board, player, depth, alpha, beta){
+  if ((++_nodes & 255) === 0 && Date.now() > _deadline){ _aborted = true; return 0; }
+  var moves = legalMoves(board, player);
+  if (!moves.length){
+    if (!legalMoves(board, -player).length) return terminalScore(board, player);
+    return -negamax(board, -player, depth, -beta, -alpha); // パス
+  }
+  if (depth <= 0) return evaluate(board, player);
+  moves.sort(function(a, b){ return W[b] - W[a]; });
+  var best = -Infinity;
+  for (var i = 0; i < moves.length; i++){
+    var v = -negamax(applyMove(board, moves[i], player), -player, depth - 1, -beta, -alpha);
+    if (_aborted) return 0;
+    if (v > best) best = v;
+    if (v > alpha) alpha = v;
+    if (alpha >= beta) break;
+  }
+  return best;
+}
+function searchRoot(board, player, depth, moves){
+  var best = moves[0], bestV = -Infinity, alpha = -Infinity;
+  for (var i = 0; i < moves.length; i++){
+    var v = -negamax(applyMove(board, moves[i], player), -player, depth - 1, -Infinity, -alpha);
+    if (_aborted) return null;
+    if (v > bestV){ bestV = v; best = moves[i]; }
+    if (v > alpha) alpha = v;
+  }
+  return best;
+}
+// level: "weak" | "mid" | "strong"。opts.maxDepth / opts.timeMs は強いときの上書き用。
+function chooseMove(board, player, level, opts){
+  opts = opts || {};
+  var moves = legalMoves(board, player);
+  if (!moves.length) return -1;
+  if (moves.length === 1) return moves[0];
+  var i;
+  if (level === "weak") return moves[Math.floor(Math.random() * moves.length)];
+  if (level === "mid"){
+    var bestV = -Infinity, cand = [];
+    for (i = 0; i < moves.length; i++){
+      var nb = applyMove(board, moves[i], player);
+      var v = evaluate(nb, player) + Math.random() * 3; // 1手読み
+      // 評価は手番側視点なので、打ったあとの盤を player から評価している
+      if (v > bestV){ bestV = v; cand = [moves[i]]; }
+    }
+    return cand[0];
+  }
+  // strong：反復深化（最大 maxDepth・時間切れなら直前の深さの答え）
+  var maxDepth = opts.maxDepth || 6;
+  var timeMs = opts.timeMs === undefined ? 700 : opts.timeMs;
+  var empties = 0; for (i = 0; i < 64; i++) if (board[i] === 0) empties++;
+  if (empties <= 8 && !opts.maxDepth) maxDepth = empties; // 終盤は最後まで読む
+  moves.sort(function(a, b){ return W[b] - W[a]; });
+  var result = moves[0];
+  _deadline = Date.now() + timeMs; _aborted = false; _nodes = 0;
+  for (var d = 2; d <= maxDepth; d++){
+    var r = searchRoot(board, player, d, moves);
+    if (r === null) break;
+    result = r;
+    // 前の深さの最善手を先頭に（次の深さの枝刈りが効く）
+    moves.splice(moves.indexOf(r), 1); moves.unshift(r);
+  }
+  _deadline = Infinity; _aborted = false;
+  return result;
+}
+
+// 友だちと対局（shared/friendplay.js）に渡す4つ。手は "d3" のような座標の文字列で記録する
+function parseCoord(s){
+  if (typeof s !== "string" || !/^[a-h][1-8]$/.test(s)) return -1;
+  return (+s.charAt(1) - 1) * 8 + "abcdefgh".indexOf(s.charAt(0));
+}
+var OTHELLO_ADAPTER = {
+  id: "othello",
+  handicaps: [], // オセロには公式のハンデの決まりが無い（10/26 に見送り）
+  sideLabel: function(side){ return side === "first" ? "黒（先手）" : "白（後手）"; },
+  initial: function(){ return {board: initBoard(), player: BLACK, last: -1, over: false, passed: 0}; },
+  play: function(st, mv){
+    if (st.over) return null;
+    var idx = parseCoord(mv);
+    if (idx < 0) return null;
+    var nb = applyMove(st.board, idx, st.player);
+    if (!nb) return null;
+    var np = nextPlayer(nb, st.player);
+    return {board: nb, player: np === 0 ? st.player : np, last: idx, over: np === 0, passed: np === st.player ? -st.player : 0};
+  },
+  turn: function(st){ return st.player === BLACK ? "first" : "second"; },
+  result: function(st){
+    if (!st.over) return null;
+    var c = countDiscs(st.board), w = winner(st.board);
+    return {winner: w === BLACK ? "first" : w === WHITE ? "second" : "draw", text: "黒 " + c.b + " − 白 " + c.w};
+  }
+};
+// ===== LOGIC-END =====
+
+// ===== FRIENDPLAY-BEGIN（元＝shared/friendplay.js。直すのは元のファイルで、`python shared/embed.py` で4つのページに配る）=====
+// 友だちと対局：claude.ai の Artifact の db（見る人どうしで共有する記録）と user（いま見ている人）で、
+// 対局の一覧・手の記録・レーティング（イロ式）を受け持つ。盤の描き方と手の正しさは各ゲームの adapter に任せる。
+//   adapter = { id, sideLabel(side, handicap, rule), handicaps:[{id,label}], rules:[{id,label}]（任意）, initial(handicap, rule),
+//               play(state, move)→新しい局面 or null, turn(state)→"first"|"second", result(state)→null | {winner:"first"|"second"|"draw", text} }
+//   先手・後手は adapter の言い方で「first」「second」。handicaps と rules の先頭（id ""）が平手・既定。ハンデ戦はレーティングに入れない。
+// 2026-10-26 Claude（Opus）。萩野「ログイン機能とかレーティングもつけて友達同士で対戦させると面白い」。
+var FriendPlay = (function(){
+  var K = 32, START = 1500, LEASE_MS = 3000;
+
+  function now(){ return new Date().toISOString(); }
+  function other(side){ return side === "first" ? "second" : "first"; }
+  function fail(code, message){ var e = new Error(message); e.code = code; return e; }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function seatOf(g, key){ return !g || !g.seats ? null : g.seats.first === key ? "first" : g.seats.second === key ? "second" : null; }
+
+  // 手の列を最初から並べ直す。返す：{state, bad（正しくない手の位置・無ければ -1）}
+  function replay(adapter, g){
+    var st = adapter.initial(g.handicap || "", g.rule || ""), moves = g.moves || [];
+    for (var i = 0; i < moves.length; i++){
+      var ns = adapter.play(st, moves[i]);
+      if (!ns) return {state: st, bad: i};
+      st = ns;
+    }
+    return {state: st, bad: -1};
+  }
+
+  // レーティング：終わった平手の対局を終わった順に並べ、毎回最初から数え直す（各自が点を書かない＝二重に数えない）
+  function ratings(games){
+    var done = games.filter(function(g){
+      return g && g.status === "done" && g.rated && g.result && g.finishedAt && g.seats &&
+        g.seats.first && g.seats.second && g.seats.first !== g.seats.second;
+    }).slice().sort(function(a, b){
+      if (a.finishedAt !== b.finishedAt) return a.finishedAt < b.finishedAt ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    var table = {}, delta = {};
+    function get(k){ return table[k] || (table[k] = {r: START, n: 0, w: 0, l: 0, d: 0}); }
+    done.forEach(function(g){
+      var a = get(g.seats.first), b = get(g.seats.second);
+      var ea = 1 / (1 + Math.pow(10, (b.r - a.r) / 400));
+      var sa = g.result.winner === "first" ? 1 : g.result.winner === "second" ? 0 : 0.5;
+      var da = K * (sa - ea);
+      a.r += da; b.r -= da; a.n++; b.n++;
+      if (sa === 1){ a.w++; b.l++; } else if (sa === 0){ a.l++; b.w++; } else { a.d++; b.d++; }
+      delta[g.id] = {first: da, second: -da};
+    });
+    return {table: table, delta: delta};
+  }
+
+  // 同じ対局に2人が同時に書かないよう、短い札（lease）を取ってから最新を読み、書く
+  async function withLease(ref, holder, fn){
+    for (var t = 0; t < 8; t++){
+      var l = await ref.acquire({holder: holder, ttlMs: LEASE_MS});
+      if (l && l.acquired){
+        var s = await ref.get();
+        return await fn(s.exists ? s.data() : null);
+      }
+      await sleep(400 + Math.random() * 600);
+    }
+    throw fail("busy", "相手が書き込み中です。少し待ってからもう一度押してください。");
+  }
+
+  async function create(db, me, adapter, opt){
+    var side = opt.side === "random" ? (Math.random() < 0.5 ? "first" : "second") : opt.side;
+    var seats = {first: null, second: null}, t = now();
+    seats[side] = me.key;
+    var ref = db.collection("games").doc();
+    await ref.set({v: 1, game: adapter.id, status: "open", createdBy: me.key, createdAt: t, updatedAt: t,
+      seats: seats, handicap: opt.handicap || "", rule: opt.rule || "", rated: !opt.handicap, moves: [], result: null});
+    return ref.id;
+  }
+
+  async function join(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "この対局はもう始まったか、なくなりました。");
+      if (seatOf(g, me.key)) throw fail("self", "自分で作った対局です。相手が入るのを待ってください。");
+      var side = g.seats.first ? "second" : "first", t = now(), patch = {status: "playing", startedAt: t, updatedAt: t, seats: {}};
+      patch.seats[side] = me.key;
+      await ref.update(patch);
+      return side;
+    });
+  }
+
+  async function move(db, me, adapter, gid, mv, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var rp = replay(adapter, g);
+      if (rp.bad >= 0) throw fail("broken", "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。");
+      if (adapter.turn(rp.state) !== side) throw fail("notturn", "相手の番です。");
+      var ns = adapter.play(rp.state, mv);
+      if (!ns) throw fail("illegal", "その手は指せません。");
+      var t = now(), res = adapter.result(ns), patch = {moves: (g.moves || []).concat([mv]), updatedAt: t};
+      if (res){ patch.status = "done"; patch.finishedAt = t; patch.result = {winner: res.winner, reason: "end", text: res.text || ""}; }
+      await ref.update(patch);
+      return patch;
+    });
+  }
+
+  async function resign(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var t = now();
+      await ref.update({status: "done", finishedAt: t, updatedAt: t, result: {winner: other(side), reason: "resign", text: ""}});
+    });
+  }
+
+  async function cancel(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "もう始まった対局は取り消せません（投了はできます）。");
+      if (g.createdBy !== me.key) throw fail("notmine", "作った人だけが取り消せます。");
+      await ref.delete();
+    });
+  }
+
+  // ===== 画面（一覧・自分の名前・新しい対局・レーティング・対局中の帯）=====
+  function mount(opt){
+    var adapter = opt.adapter, root = opt.root, onView = opt.onView || function(){};
+    var tab = Math.random().toString(36).slice(2, 10);
+    var db = null, me = null, holder = "", booted = false, readOnly = false;
+    var games = [], names = {}, rate = {table: {}, delta: {}}, current = null, note = "", busy = false, resignArmed = null;
+
+    function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    function btn(text, fn, primary){ var b = el("button", primary ? "primary" : "", text); b.type = "button"; b.disabled = busy || readOnly; b.addEventListener("click", fn); return b; }
+    function nameOf(key){ return !key ? "（空き）" : (names[key] || "名前なし") + (me && key === me.key ? "（あなた）" : ""); }
+    function sideText(side, g){ return adapter.sideLabel(side, g ? g.handicap || "" : "", g ? g.rule || "" : ""); }
+    function label(list, id){ var f = (list || []).filter(function(x){ return x.id === id; })[0]; return f ? f.label : ""; }
+    function rr(key){ var x = rate.table[key]; return x ? Math.round(x.r) : START; }
+
+    function localKey(){
+      var k = null;
+      try { k = localStorage.getItem("friendplay.key"); } catch (e) {}
+      if (!k){ k = "g-" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); try { localStorage.setItem("friendplay.key", k); } catch (e) {} }
+      return k;
+    }
+
+    async function boot(){
+      if (booted) return; booted = true;
+      note = "つないでいます…"; draw();
+      var c = typeof window !== "undefined" ? window.claude : null;
+      if (!c || !c.use){ note = "友だちとの対局は、claude.ai でこのページを開いたときだけ使えます。"; draw(); return; }
+      db = await c.use("db");
+      var user = await c.use("user");
+      if (!db){ note = "友だちとの対局は、claude.ai にログインして開いたときだけ使えます。"; draw(); return; }
+      var id = user ? await user.id() : null;
+      me = {key: id || localKey()};
+      holder = me.key + ":" + tab;
+      var w = user ? await user.can("data.write") : null;
+      if (w === false) readOnly = true;
+      note = "";
+      db.collection("games").orderBy("createdAt", "desc").limit(1000).onSnapshot(function(snap){
+        games = snap.docs.map(function(d){ var x = {}, b = d.data(); for (var k in b) x[k] = b[k]; x.id = d.id; return x; });
+        rate = ratings(games);
+        draw(); emit();
+      }, function(e){ note = "記録を読めなくなりました（" + e.code + "）。ページを開き直してください。"; draw(); });
+      db.collection("players").onSnapshot(function(snap){
+        names = {};
+        snap.docs.forEach(function(d){ var b = d.data(); if (b && typeof b.name === "string") names[d.id] = b.name.slice(0, 16); });
+        draw(); emit();
+      }, function(){});
+    }
+
+    async function run(fn){
+      if (busy) return;
+      busy = true; note = ""; draw();
+      try { await fn(); }
+      catch (e){
+        if (e && e.code === "invalid_argument"){ readOnly = true; note = "この画面からは書き込めません（見るだけ）。対局するには、ページの持ち主に『編集者』としてメールで招いてもらってください。"; }
+        else note = (e && e.message) || "うまくいきませんでした。";
+      }
+      busy = false; draw(); emit();
+    }
+
+    function view(){
+      if (!current) return null;
+      var g = games.filter(function(x){ return x.id === current; })[0];
+      if (!g) return {gid: current, gone: true, statusText: "この対局は取り消されました。"};
+      var rp = replay(adapter, g), side = me ? seatOf(g, me.key) : null, turn = adapter.turn(rp.state);
+      var canMove = g.status === "playing" && side === turn && rp.bad < 0 && !busy && !readOnly;
+      var t;
+      if (rp.bad >= 0) t = "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。この対局は続けられません。";
+      else if (g.status === "open") t = side ? "相手を待っています。友だちがこのページを開いて『参加する』を押すと始まります。" : "まだ相手が決まっていません。";
+      else if (g.status === "playing") t = canMove ? "あなたの番です：" + sideText(side, g) + "。" : side ? "相手の番です：" + nameOf(g.seats[other(side)]) + "。指されると盤が自動で進みます。" : "観戦中：" + sideText(turn, g) + "の番です。";
+      else {
+        var r = g.result || {}, wtxt = r.winner === "draw" ? "引き分け" : sideText(r.winner, g) + "・" + nameOf(g.seats[r.winner]) + "の勝ち";
+        t = "終局" + (r.text ? "　" + r.text : "") + "　" + wtxt + (r.reason === "resign" ? "（投了）" : "");
+        var d = rate.delta[g.id];
+        if (d && side) t += "　レート " + (d[side] >= 0 ? "+" : "") + Math.round(d[side]);
+        else if (!g.rated) t += "（ハンデ戦なのでレーティングには入れません）";
+      }
+      return {gid: g.id, game: g, state: rp.state, mySide: side, canMove: canMove, statusText: t,
+        players: {first: nameOf(g.seats.first), second: nameOf(g.seats.second)}};
+    }
+    function emit(){ onView(current ? view() : null); }
+
+    function row(g){
+      var li = el("li", "fp-row"), side = me ? seatOf(g, me.key) : null;
+      var who = sideText("first", g) + " " + nameOf(g.seats.first) + " ／ " + sideText("second", g) + " " + nameOf(g.seats.second);
+      var extra = [g.rule ? label(adapter.rules, g.rule) : "", g.handicap ? label(adapter.handicaps, g.handicap) : ""].filter(Boolean).join("・");
+      li.appendChild(el("span", "fp-who", who + (extra ? "（" + extra + "）" : "") + (g.status === "playing" ? "　" + (g.moves || []).length + "手" : "")));
+      var acts = el("span", "fp-acts");
+      if (g.status === "open"){
+        if (side) acts.appendChild(btn("取り消す", function(){ run(function(){ return cancel(db, me, g.id, holder); }); }));
+        else acts.appendChild(btn("参加する", function(){ run(async function(){ await join(db, me, g.id, holder); current = g.id; }); }, true));
+        if (side){ var o = btn("開く", function(){ current = g.id; draw(); emit(); }); o.disabled = false; acts.appendChild(o); }
+      } else {
+        var b = btn(side && g.status === "playing" ? "続ける" : g.status === "playing" ? "観戦する" : "盤を見る", function(){ current = g.id; draw(); emit(); }, side && g.status === "playing");
+        b.disabled = false; acts.appendChild(b);
+      }
+      li.appendChild(acts);
+      return li;
+    }
+
+    function draw(){
+      if (!root) return;
+      root.textContent = "";
+      var box = el("div", "fp-box"); // "fp" は将棋の図の CSS と同じ名前になるので使わない
+      function pair(lab, ctl){ var s = el("span", "fp-pair"); s.appendChild(lab); s.appendChild(ctl); return s; }
+      box.appendChild(el("h2", "fp-h", "友だちと対局"));
+      if (note) box.appendChild(el("p", "fp-note", note));
+      if (!db || !me){ root.appendChild(box); return; }
+      if (readOnly) box.appendChild(el("p", "fp-note", "この画面からは書き込めません（見るだけ）。観戦とレーティングは見られます。"));
+
+      if (current){
+        var v = view(), bar = el("div", "fp-bar");
+        if (v && v.game){
+          bar.appendChild(el("p", "fp-who", sideText("first", v.game) + "：" + v.players.first + "（" + rr(v.game.seats.first) + "）"));
+          bar.appendChild(el("p", "fp-who", sideText("second", v.game) + "：" + v.players.second + "（" + rr(v.game.seats.second) + "）"));
+        }
+        var acts = el("div", "fp-acts");
+        if (v && v.game && v.game.status === "playing" && v.mySide){
+          acts.appendChild(btn("投了する", function(){
+            // 確認の窓（confirm）は出さない＝2度押しで投了
+            if (resignArmed !== current){ resignArmed = current; note = "もう一度『投了する』を押すと投了します。"; draw(); return; }
+            resignArmed = null; run(function(){ return resign(db, me, current, holder); });
+          }));
+        }
+        var back = btn("一覧へ戻る", function(){ current = null; resignArmed = null; note = ""; draw(); emit(); });
+        back.disabled = false; acts.appendChild(back);
+        bar.appendChild(acts);
+        box.appendChild(bar);
+        root.appendChild(box);
+        return;
+      }
+
+      // 自分の名前
+      var nm = el("div", "fp-sec"), lab = el("label", "", "あなたの名前（相手に見えます）"), inp = el("input");
+      inp.type = "text"; inp.maxLength = 16; inp.value = names[me.key] || ""; inp.id = "fp-name-" + tab; lab.htmlFor = inp.id;
+      nm.appendChild(lab); nm.appendChild(inp);
+      nm.appendChild(btn("名前を保存", function(){
+        var s = inp.value.trim().slice(0, 16);
+        if (!s){ note = "名前を入れてください。"; draw(); return; }
+        run(function(){ return db.doc("players/" + me.key).set({name: s, updatedAt: now()}); });
+      }));
+      box.appendChild(nm);
+
+      // 新しい対局
+      var nw = el("div", "fp-sec");
+      nw.appendChild(el("h3", "", "新しい対局を作って待つ"));
+      var sideSel = el("select"); sideSel.id = "fp-side-" + tab;
+      [["first", sideText("first", null)], ["second", sideText("second", null)], ["random", "おまかせ"]].forEach(function(o){ var op = el("option", "", o[1]); op.value = o[0]; sideSel.appendChild(op); });
+      var sl = el("label", "", "あなたは"); sl.htmlFor = sideSel.id;
+      nw.appendChild(pair(sl, sideSel));
+      var hcSel = null, ruleSel = null;
+      if (adapter.rules && adapter.rules.length){
+        ruleSel = el("select"); ruleSel.id = "fp-rule-" + tab;
+        adapter.rules.forEach(function(r){ var op = el("option", "", r.label); op.value = r.id; ruleSel.appendChild(op); });
+        var rl = el("label", "", "ルール"); rl.htmlFor = ruleSel.id;
+        nw.appendChild(pair(rl, ruleSel));
+      }
+      if (adapter.handicaps && adapter.handicaps.length){
+        hcSel = el("select"); hcSel.id = "fp-hc-" + tab;
+        adapter.handicaps.forEach(function(h){ var op = el("option", "", h.label); op.value = h.id; hcSel.appendChild(op); });
+        var hl = el("label", "", "ハンデ"); hl.htmlFor = hcSel.id;
+        nw.appendChild(pair(hl, hcSel));
+        hcSel.addEventListener("change", function(){
+          var h = hcSel.value;
+          [].forEach.call(sideSel.options, function(op){ if (op.value !== "random") op.textContent = adapter.sideLabel(op.value, h, ruleSel ? ruleSel.value : ""); });
+        });
+      }
+      nw.appendChild(btn("作って待つ", function(){
+        if (!names[me.key]){ note = "先に、あなたの名前を保存してください。"; draw(); return; }
+        var o = {side: sideSel.value, handicap: hcSel ? hcSel.value : "", rule: ruleSel ? ruleSel.value : ""};
+        run(async function(){ current = await create(db, me, adapter, o); });
+      }, true));
+      box.appendChild(nw);
+
+      // 一覧
+      var open = games.filter(function(g){ return g.status === "open"; });
+      var playing = games.filter(function(g){ return g.status === "playing"; });
+      var done = games.filter(function(g){ return g.status === "done"; }).slice(0, 10);
+      [["相手を待っている対局", open, "いまは、ありません。"], ["対局中", playing, "いまは、ありません。"], ["終わった対局（新しい順に10）", done, "まだ、ありません。"]].forEach(function(s){
+        var sec = el("div", "fp-sec");
+        sec.appendChild(el("h3", "", s[0]));
+        if (!s[1].length) sec.appendChild(el("p", "fp-empty", s[2]));
+        else { var ul = el("ul", "fp-list"); s[1].forEach(function(g){ ul.appendChild(row(g)); }); sec.appendChild(ul); }
+        box.appendChild(sec);
+      });
+
+      // レーティング
+      var rs = el("div", "fp-sec");
+      rs.appendChild(el("h3", "", "レーティング"));
+      var keys = Object.keys(rate.table).sort(function(a, b){ return rate.table[b].r - rate.table[a].r; });
+      if (!keys.length) rs.appendChild(el("p", "fp-empty", "平手の対局が1局終わると出ます（はじめは全員 1500）。"));
+      else {
+        var tw = el("div", "fp-tablewrap"), tb = el("table", "fp-table"), hd = el("tr");
+        ["順位", "名前", "レート", "成績"].forEach(function(h){ hd.appendChild(el("th", "", h)); });
+        tb.appendChild(hd);
+        keys.forEach(function(k, i){
+          var x = rate.table[k], tr = el("tr");
+          [String(i + 1), nameOf(k), String(Math.round(x.r)) + (x.n < 5 ? "（仮）" : ""), x.w + "勝" + x.l + "敗" + (x.d ? x.d + "分" : "")].forEach(function(c){ tr.appendChild(el("td", "", c)); });
+          tb.appendChild(tr);
+        });
+        tw.appendChild(tb); rs.appendChild(tw);
+      }
+      rs.appendChild(el("p", "fp-empty", "イロ式（はじめは 1500・1局で最大 ±32 動く）。5局までは（仮）。ハンデ戦は入れません。"));
+      box.appendChild(rs);
+
+      var dt = el("details", "fp-sec"), sm = el("summary", "", "友だちと遊ぶための準備（ページの持ち主がすること）");
+      dt.appendChild(sm);
+      ["1. 友だちにも claude.ai のアカウントが要ります（無料でよい）。",
+       "2. ページの右上の［共有］から、友だちのメールアドレスを『編集者』で招きます。招かれた人だけが手を指せます。",
+       "3. 公開リンク（だれでも見られる共有）を同時に出すと、外から招いた人は書き込めなくなります。対局に使うページは、リンクで共有しないでください。",
+       "4. 記録はこのページの中だけにあります。名前とレートは、ほかのゲームのページとは別です。"].forEach(function(s){ dt.appendChild(el("p", "", s)); });
+      box.appendChild(dt);
+      root.appendChild(box);
+    }
+
+    return {
+      show: function(){ if (root) root.hidden = false; draw(); boot(); emit(); },
+      hide: function(){ if (root) root.hidden = true; onView(null); },
+      active: function(){ return !!current; },
+      submit: function(mv){ if (!current || !db) return Promise.resolve(); var gid = current; return run(function(){ return move(db, me, adapter, gid, mv, holder); }); }
+    };
+  }
+
+  var CSS = ".fp-h{font-size:18px;margin:2px 0 6px}.fp-box h3{font-size:16px;margin:10px 0 4px}" +
+    ".fp-pair{display:inline-flex;align-items:center;gap:6px;max-width:100%;margin-right:8px}.fp-pair select{max-width:calc(100vw - 120px)}" +
+    ".fp-note{margin:6px 0;padding:6px 8px;border:1px solid var(--line,currentColor);border-radius:8px}" +
+    ".fp-sec{margin:8px 0}.fp-sec label{margin-right:6px}.fp-sec input{font:inherit;font-size:16px;min-height:44px;padding:4px 8px;border-radius:8px;border:1px solid var(--line,#999);background:transparent;color:inherit;max-width:100%}" +
+    ".fp-sec select,.fp-sec button,.fp-acts button{margin:4px 6px 4px 0}" +
+    ".fp-list{list-style:none;margin:0;padding:0}.fp-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px;padding:6px 0;border-top:1px solid var(--line,#ccc)}" +
+    ".fp-who{margin:2px 0;overflow-wrap:anywhere}.fp-empty{margin:4px 0;font-size:14px;opacity:.85}" +
+    ".fp-tablewrap{overflow-x:auto;max-width:100%}.fp-table{border-collapse:collapse;font-size:15px;width:100%}.fp-table th,.fp-table td{border-bottom:1px solid var(--line,#ccc);padding:4px 6px;text-align:left}.fp-table td:nth-child(3),.fp-table td:nth-child(4){white-space:nowrap}" +
+    ".fp-bar{display:flex;flex-direction:column;gap:2px}";
+  if (typeof document !== "undefined"){ var st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st); }
+
+  return {mount: mount, replay: replay, ratings: ratings, create: create, join: join, move: move, resign: resign, cancel: cancel, START: START, K: K};
+})();
+// ===== FRIENDPLAY-END =====
+
+// ===== UI =====
+(function(){
+  if (typeof document === "undefined") return;
+  var $ = function(id){ return document.getElementById(id); };
+  var boardEl = $("board"), msgEl = $("msg");
+  var board, player, hist, last, over, thinking, notice;
+  var cells = [];
+
+  for (var i = 0; i < 64; i++){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "cell"; b.setAttribute("data-i", i);
+    b.setAttribute("aria-label", coordName(i));
+    boardEl.appendChild(b); cells.push(b);
+  }
+  boardEl.addEventListener("click", function(e){
+    var t = e.target.closest(".cell"); if (!t) return;
+    humanMove(+t.getAttribute("data-i"));
+  });
+
+  var net = null, netView = null;
+  function netOn(){ return $("mode").value === "net"; }
+  function cpuOn(){ return $("mode").value === "cpu"; }
+  function myColor(){ return +$("me").value; }
+  function isCpuTurn(){ return cpuOn() && !over && player === -myColor(); }
+  function nameOf(p){ return p === BLACK ? "黒" : "白"; }
+
+  function newGame(){
+    board = initBoard(); player = BLACK; hist = []; last = -1; over = false; thinking = false; notice = "";
+    $("cpuOpts").style.display = cpuOn() ? "" : "none";
+    $("localBtns").style.display = netOn() ? "none" : "";
+    if (netOn()){
+      if (!net) net = FriendPlay.mount({adapter: OTHELLO_ADAPTER, root: $("fpRoot"), onView: onNetView});
+      net.show();
+    } else if (net) net.hide();
+    render();
+    maybeCpu();
+  }
+  // 友だちとの対局：盤は記録から並べ直した局面をそのまま描く
+  function onNetView(v){
+    netView = v;
+    if (!netOn()) return;
+    if (v && v.state){
+      board = v.state.board; player = v.state.player; last = v.state.last;
+      over = v.state.over || v.game.status === "done";
+      notice = v.state.passed ? nameOf(v.state.passed) + "は置ける所がないのでパスです。" : "";
+    } else { board = initBoard(); player = BLACK; last = -1; over = false; notice = ""; }
+    render();
+  }
+  function render(){
+    var c = countDiscs(board), legal = (!over && !isCpuTurn() && !thinking && (!netOn() || (netView && netView.canMove))) ? legalMoves(board, player) : [];
+    for (var i = 0; i < 64; i++){
+      var el = cells[i], v = board[i], h = "";
+      if (v) h = '<span class="disc ' + (v === BLACK ? "b" : "w") + '"></span>';
+      else if (legal.indexOf(i) >= 0) h = '<span class="hint"></span>';
+      el.innerHTML = h;
+      el.classList.toggle("last", i === last);
+      el.disabled = false;
+    }
+    $("nB").textContent = c.b; $("nW").textContent = c.w;
+    $("sB").classList.toggle("turn", !over && player === BLACK);
+    $("sW").classList.toggle("turn", !over && player === WHITE);
+    var t;
+    if (netOn()){
+      t = (notice && !over ? notice + "\n" : "") + (netView ? netView.statusText : "上の一覧から対局を選ぶか、新しい対局を作ってください。");
+    } else if (over){
+      var w = winner(board);
+      t = "終局　黒 " + c.b + " − 白 " + c.w + " で " + (w === 0 ? "引き分け" : nameOf(w) + "の勝ち");
+    } else {
+      var who = nameOf(player) + "の番です";
+      if (cpuOn()) who += isCpuTurn() ? "（コンピュータが考え中…）" : "（あなた）";
+      t = (notice ? notice + "\n" : "") + who;
+    }
+    if (last >= 0 && !over) t += "　最後の手：" + coordName(last);
+    msgEl.textContent = t; msgEl.style.whiteSpace = "pre-line";
+    $("undo").disabled = hist.length === 0 || thinking;
+  }
+  function play(idx){
+    hist.push({board: board, player: player, last: last});
+    var mover = player;
+    board = applyMove(board, idx, mover); last = idx;
+    var np = nextPlayer(board, mover);
+    notice = "";
+    if (np === 0){ over = true; }
+    else if (np === mover){ notice = nameOf(-mover) + "は置ける所がないのでパスです。"; }
+    player = np === 0 ? mover : np;
+  }
+  function humanMove(idx){
+    if (netOn()){
+      if (!netView || !netView.canMove || over || !applyMove(board, idx, player)) return;
+      net.submit(coordName(idx));
+      return;
+    }
+    if (over || thinking || isCpuTurn()) return;
+    if (!applyMove(board, idx, player)) return;
+    play(idx); render(); maybeCpu();
+  }
+  function maybeCpu(){
+    if (!isCpuTurn()) return;
+    thinking = true; render();
+    setTimeout(function(){
+      var m = chooseMove(board, player, $("lv").value);
+      thinking = false;
+      if (m >= 0){ play(m); }
+      render();
+      maybeCpu(); // 人間がパスのときは続けて打つ
+    }, 350);
+  }
+  $("undo").addEventListener("click", function(){
+    if (thinking || !hist.length) return;
+    var s;
+    if (cpuOn()){
+      // 自分の手番の局面まで戻す
+      do { s = hist.pop(); } while (hist.length && s.player !== myColor());
+      if (s.player !== myColor()){ /* 先頭まで戻った（コンピュータ先手の最初の局面） */ }
+    } else { s = hist.pop(); }
+    board = s.board; player = s.player; last = s.last; over = false; notice = "";
+    render(); maybeCpu();
+  });
+  $("reset").addEventListener("click", newGame);
+  ["mode","me","lv"].forEach(function(id){ $(id).addEventListener("change", newGame); });
+  newGame();
+})();
+</script>
+</body>
+</html>

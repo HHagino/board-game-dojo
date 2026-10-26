@@ -1,0 +1,1297 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>囲碁道場</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 一列の盤面アプリ：設定 → 取った石 → 盤 → 操作。色はすべてトークンから */
+:root{
+  --bg:#f3f1ea; --fg:#222; --panel:#fff; --line:#cfcabb;
+  --board:#e0b765; --board-line:#4a3818; --board-edge:#8a6a30;
+  --black:#161616; --black-edge:#000; --white:#fafafa; --white-edge:#777;
+  --accent:#2a6fb0; --on-accent:#fff; --mark:#e0a000; --ko:#c0392b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+    --board:#a8803f; --board-line:#2a1f0c; --board-edge:#6b5224;
+    --white-edge:#999; --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; --ko:#ff7a6b; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16191a; --fg:#e8e6df; --panel:#22272a; --line:#3a4144;
+  --board:#a8803f; --board-line:#2a1f0c; --board-edge:#6b5224;
+  --white-edge:#999; --accent:#6aa9e0; --on-accent:#0d1a26; --mark:#ffc533; --ko:#ff7a6b; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 "Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+  padding-block:12px 32px;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  max-width:520px;margin:0 auto;-webkit-text-size-adjust:100%}
+h1{font-size:20px;margin:4px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+label{font-size:15px}
+select,button{font:inherit;font-size:16px;min-height:44px;padding:4px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button{cursor:pointer}
+button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+.score{display:flex;justify-content:space-between;align-items:center;font-size:16px;gap:6px}
+.score .side{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;border:2px solid transparent}
+.score .side.turn{border-color:var(--mark)}
+.dot{display:inline-block;width:20px;height:20px;border-radius:50%;border:1px solid #888}
+.dot.b{background:var(--black)} .dot.w{background:var(--white)}
+#msg{min-height:4.8em;font-size:16px;margin:6px 2px;white-space:pre-line}
+#boardWrap{position:relative;width:min(100%, 480px);max-width:100%;aspect-ratio:1/1;margin:6px auto;touch-action:manipulation;
+  user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+#board{display:block;width:100%;height:100%}
+/* 押せる点：盤の上に重ねた透明のボタン（1つ＝交点を中心に盤の 1/10 の正方形・升の呼び名は data-sq） */
+#hits{position:absolute;top:0;left:0;width:100%;height:100%}
+#hits .pt{position:absolute;width:10%;height:10%;min-width:0;min-height:0;padding:0;margin:0;border:0;border-radius:50%;
+  background:transparent;cursor:pointer;-webkit-tap-highlight-color:transparent}
+#hits .pt:focus-visible{outline:3px solid var(--mark);outline-offset:-3px}
+.bd-bg{fill:var(--board);stroke:var(--board-edge);stroke-width:.12}
+.gline{stroke:var(--board-line);stroke-width:.04}
+.star{fill:var(--board-line)}
+.stone.sb{fill:var(--black);stroke:var(--black-edge);stroke-width:.04}
+.stone.sw{fill:var(--white);stroke:var(--white-edge);stroke-width:.04}
+.stone.dead{opacity:.35}
+.xmark{stroke:var(--ko);stroke-width:.1;stroke-linecap:round}
+.lastmark{fill:var(--mark);stroke:var(--black-edge);stroke-width:.03}
+.komark{fill:none;stroke:var(--ko);stroke-width:.08}
+.terr.tb{fill:var(--black);stroke:var(--white-edge);stroke-width:.03}
+.terr.tw{fill:var(--white);stroke:var(--black-edge);stroke-width:.03}
+
+.fig{display:block;width:176px;max-width:100%;aspect-ratio:1/1;margin:6px 0}
+.fig .bd-bg{stroke-width:.1}
+.libdot{fill:var(--ko);opacity:.9}
+.numt{font-size:.5px;text-anchor:middle;dominant-baseline:central;font-weight:bold}
+.numt.on-b{fill:var(--white)} .numt.on-w{fill:var(--black)}
+.labt{font-size:.42px;text-anchor:middle;fill:var(--ko);font-weight:bold}
+.guide h3{font-size:17px;margin:14px 0 2px}
+.guide p{margin:4px 0}
+.guide dt{font-weight:bold;margin-top:6px}
+.guide dd{margin:0 0 2px 0}
+.pz-msg{min-height:3.4em;margin:6px 0}
+#pboard{display:block;width:min(100%, 300px);aspect-ratio:1/1;margin:6px auto;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.ok{color:var(--accent);font-weight:bold}
+small{font-size:14px;color:inherit;opacity:.85}
+details{font-size:15px}
+details summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:bold}
+details p{margin:6px 0}
+</style>
+</head>
+<body>
+<h1>囲碁道場</h1>
+
+<div class="panel guide">
+<details id="guide" open>
+  <summary>はじめての人へ（ルールの説明）</summary>
+  <p>上から順に読めば、このページだけで対局を最後まで終えられます。<b>おすすめ設定</b>：9路盤・弱いコンピュータ・中国ルール（または純碁）・自分が黒。<button type="button" id="recommend">おすすめ設定にする</button></p>
+
+  <h3>① 目的</h3>
+  <div class="fig" data-fig="aim"></div>
+  <p>黒と白が交互に石を置き、自分の石で囲んだ「陣地」（囲んだ空いている場所）を広く取った方が勝ちです。数え方は3通りあります（⑩）。はじめてなら中国ルールか純碁がおすすめです。</p>
+
+  <h3>② 打ち方</h3>
+  <div class="fig" data-fig="play"></div>
+  <p>黒から始め、線の交点に交互に1つずつ石を置きます（図の数字は打つ順）。一度置いた石は動かせません。</p>
+
+  <h3>③ 呼吸点</h3>
+  <div class="fig" data-fig="liberty"></div>
+  <p>石の上下左右にある空いた点を「呼吸点」といいます（赤い点）。斜めは数えません。盤の端や隅では数が減ります。</p>
+
+  <h3>④ 石を取る</h3>
+  <div class="fig" data-fig="atari"></div>
+  <p>呼吸点が全部ふさがれた石は取られます。この白石は呼吸点が右の1つだけ（この状態を「アタリ」）。黒がそこに打つと取れます。つながった同じ色の石（「連」）は、呼吸点が全部なくなればまとめて取られます。</p>
+
+  <h3>⑤ 打てない所</h3>
+  <div class="fig" data-fig="suicide"></div>
+  <p>自分の石が呼吸点を失う所（赤い×）には打てません（「自殺手」）。ただし、打つことで相手の石を取れるときは打てます。</p>
+
+  <h3>⑥ コウ</h3>
+  <div class="fig" data-fig="ko"></div>
+  <p>黒が下の白石を取ると、白が取り返すと元の形に戻り、いつまでも繰り返せてしまいます。そこで、1子を取られた所（赤い四角）には、すぐには打てません。別の所に1手打ってからなら取り返せます。※同じ形が長く繰り返される「スーパーコウ」までは判定しません。</p>
+
+  <h3>⑦ 生きと死に</h3>
+  <div class="fig" data-fig="eyes"></div>
+  <p>石に囲まれた空点を「目」といいます。1つのグループに目が2つあると、相手はどちらにも打てない（自殺手になる）ので、取られません。これを「生き」といいます。逃げられず目も作れない石は「死に石」です。</p>
+
+  <h3>⑧ パスと終局</h3>
+  <div class="fig" data-fig="wall"></div>
+  <p>これ以上打つと損だと思ったら「パス」（番を飛ばす）します。2人が続けてパスすると対局は終わりです。</p>
+
+  <h3>⑨ 死に石を選んで数える</h3>
+  <div class="fig" data-fig="dead"></div>
+  <p>終局後、自分の陣の中で取られる運命の石（死に石、赤い×）を押して印をつけ、［数える］を押します。<b>迷ったら</b>：中国ルールと純碁では、自分の陣の中に打って取り切っても損をしません。取り切るまで打ち続ければ、死に石かどうかを話し合う必要がありません。日本ルールでは自分の陣に打つと1目減るので注意してください。</p>
+  <p><b>友だちと対局（オンライン）では</b>、死に石を選ぶ段がありません。盤の上の石は全部生きとして数えるので、死んだ石は取り切ってから2回パスしてください（2人で死に石を決め合う画面を作らないための決まりです）。</p>
+
+  <h3>⑩ 数え方の違い</h3>
+  <div class="fig" data-fig="count"></div>
+  <p>図は5路の例です。黒の壁・白の壁（5子ずつ）、それぞれの陣（5点ずつ）、間に空点（ダメ）が5点。</p>
+  <p><b>中国ルール（面積）</b>：盤上の自分の石の数と、自分の石だけに囲まれた空点の数を足します。取った石の数は使いません。図では 黒10 対 白10。</p>
+  <p><b>日本ルール（地）</b>：自分の石だけに囲まれた空点（地）と、アゲハマ（対局中に取った石と、終局で選んだ相手の死に石）を足します。両方の色に接する空点（ダメ）と盤上の石は数えません。図では 黒5 対 白5（アゲハマがあれば足す）。※セキ（お互いに取れない形）の中の空点は本来は地にしませんが、自動判定は未対応です。選んだ死に石を除いたあと、片方の色だけに囲まれた空点を地に数えます。</p>
+  <p><b>純碁</b>：盤上に残った自分の石の数だけを数えます（空点は数えない）。図では 黒5 対 白5。石の数だけで決まるので、終盤はダメや自分の陣も石で埋めていきます。</p>
+  <p>どれも白にコミを足して比べます。初期値は中国ルール 7目・日本ルール 6.5目・純碁 7目（この画面での初期値で、6.5・7・7.5 から変えられます）。同じ終局図でも、打った石の数やアゲハマ、ダメの扱いが違うため、勝敗の差が1目前後ずれることがあります。</p>
+  <p><b>置き石（ハンディキャップ）</b>：力の差があるとき、弱い方が黒を持ち、先に盤上の星（3-3の4隅と中央の天元）に黒石を置いてから対局します。2子〜5子の置き方は19路と同じ形で、2子は右上と左下の対角、3子はそこへ右下を足し、4子は4隅、5子は4隅と天元です（日本棋院の1図の順）。置いたあとは白から打ちます。日本棋院の説明ではコミは付けません（コミがないので持碁になったときは白の勝ち）。この画面でもコミの初期値は0目です（変えられます）。なお、中国ルールで置き石の数に応じて点を直す流儀は、確かめられなかったので未対応です。</p>
+  <p><b>3つで共通</b>：コウ・自殺手の禁止・続けて2回パスで終局。</p>
+
+  <h3>用語集</h3>
+  <dl>
+    <dt>アタリ</dt><dd>呼吸点があと1つで、次に取られる状態。</dd>
+    <dt>呼吸点</dt><dd>石の上下左右の空いた点。</dd>
+    <dt>連</dt><dd>上下左右でつながった同じ色の石のかたまり。</dd>
+    <dt>目</dt><dd>自分の石に囲まれた空点。2つあると生き。</dd>
+    <dt>コウ</dt><dd>取り合いが永遠に続く形。すぐには取り返せない。</dd>
+    <dt>セキ</dt><dd>お互いに取れず、どちらの地にもならない形。</dd>
+    <dt>ダメ</dt><dd>黒にも白にも接している空点。どちらの陣でもない。</dd>
+    <dt>地</dt><dd>自分の石だけに囲まれた空点（陣地）。</dd>
+    <dt>アゲハマ</dt><dd>対局中に取った相手の石。</dd>
+    <dt>置き石</dt><dd>力の差を埋めるため、黒が先に盤上の星へ置いておく石。置いたあとは白から打つ。</dd>
+    <dt>コミ</dt><dd>先に打つ黒の有利を埋めるため、白に足す目数。</dd>
+    <dt>純碁</dt><dd>盤上の石の数だけで勝負を決める数え方。</dd>
+    <dt>投了</dt><dd>負けを認めて対局を終えること。</dd>
+  </dl>
+</details>
+</div>
+
+<div class="panel">
+<details id="practice">
+  <summary>やってみよう（練習問題・5問）</summary>
+  <p id="pzTitle"><b></b></p>
+  <p id="pzAsk"></p>
+  <svg id="pboard" viewBox="0 0 6 6" role="img" aria-label="練習用の小さな盤"></svg>
+  <div id="pzMsg" class="pz-msg" role="status" aria-live="polite"></div>
+  <div class="row">
+    <button type="button" id="pzHint">ヒント</button>
+    <button type="button" id="pzRetry">やり直す</button>
+    <button type="button" id="pzNext" class="primary">次の問題</button>
+  </div>
+</details>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <label for="mode">あそび方</label>
+    <select id="mode">
+      <option value="cpu">コンピュータと対戦</option>
+      <option value="two">2人で1台</option>
+      <option value="net">友だちと対局（オンライン）</option>
+    </select>
+  </div>
+  <div class="row" id="cpuOpts" style="margin-top:6px">
+    <label for="me">あなたは</label>
+    <select id="me"><option value="1">先手（黒）</option><option value="-1">後手（白）</option></select>
+    <label for="lv">強さ</label>
+    <select id="lv"><option value="weak">弱い</option><option value="mid" selected>ふつう</option><option value="strong">強い</option></select>
+  </div>
+  <div id="localOpts">
+  <div class="row" style="margin-top:6px">
+    <label for="rule">数え方</label>
+    <select id="rule"><option value="stone">純碁</option><option value="area" selected>中国ルール</option><option value="japan">日本ルール</option></select>
+    <label for="handi">置き石</label>
+    <select id="handi"><option value="0" selected>なし</option><option value="2">2子</option><option value="3">3子</option><option value="4">4子</option><option value="5">5子</option></select>
+    <label for="komi">コミ</label>
+    <select id="komi"><option value="0">0目</option><option value="6.5">6.5目</option><option value="7" selected>7目</option><option value="7.5">7.5目</option></select>
+  </div>
+  <small>数え方とコミは対局中に変えても、終局のときの数え方だけが変わります（打つ手は同じです）。置き石を変えると新しい対局になります。置き石があるときは黒が先に石を置き、白から打ち始め、コミは0目が初期値です。</small>
+  </div>
+</div>
+
+<div class="panel" id="fpRoot" hidden></div>
+
+<div class="panel score" aria-live="polite">
+  <div class="side" id="sB"><span class="dot b"></span>黒 <small>取った石</small> <b id="nB">0</b></div>
+  <div class="side" id="sW"><span class="dot w"></span>白 <small>取った石</small> <b id="nW">0</b></div>
+</div>
+
+<div id="msg" role="status" aria-live="polite"></div>
+<div id="boardWrap">
+  <svg id="board" viewBox="0 0 10 10" role="img" aria-label="9路の碁盤。交点を押して石を置きます"></svg>
+  <div id="hits"></div>
+</div>
+
+<div class="row" style="margin-top:8px">
+  <button id="count" class="primary" hidden>数える</button>
+  <button id="pass" data-sq="pass">パス</button>
+  <button id="undo">待った</button>
+  <button id="resign">投了</button>
+  <button id="reset" class="primary">最初から</button>
+</div>
+<p id="localNote"><small>黄色い点は最後の手、赤い四角はコウで今は打てない所です。終局後は、死んでいる石を押すとその連ごと印がつき、もう一度押すと戻ります。</small></p>
+<p id="netNote" hidden><small>黄色い点は最後の手、赤い四角はコウで今は打てない所です。友だちとの対局では死に石を選ぶ段がありません。盤の上の石は全部生きとして数えるので、死んだ石は取り切ってから2回パスしてください。コミは数え方の初期値（中国ルール 7目・日本ルール 6.5目・純碁 7目、置き石のときは 0目）で、変えられません。</small></p>
+
+
+<script>
+// ===== LOGIC-BEGIN (test.js はこの区間をそのまま読み込んで検査する) =====
+var BLACK = 1, WHITE = -1, SIZE = 9, NN = 81, KOMI = 7, PASS = -1, RESIGN = -2;
+var NB = [], DIAG = [], OFFB = [];
+(function(){
+  for (var i = 0; i < NN; i++){
+    var r = (i / SIZE) | 0, c = i % SIZE, nb = [], dg = [], off = 0, k;
+    var d4 = [[-1,0],[1,0],[0,-1],[0,1]], dd = [[-1,-1],[-1,1],[1,-1],[1,1]];
+    for (k = 0; k < 4; k++){
+      var rr = r + d4[k][0], cc = c + d4[k][1];
+      if (rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE) nb.push(rr * SIZE + cc);
+    }
+    for (k = 0; k < 4; k++){
+      var r2 = r + dd[k][0], c2 = c + dd[k][1];
+      if (r2 >= 0 && r2 < SIZE && c2 >= 0 && c2 < SIZE) dg.push(r2 * SIZE + c2); else off++;
+    }
+    NB.push(nb); DIAG.push(dg); OFFB.push(off);
+  }
+})();
+var RULE_KOMI = {stone: 7, area: 7, japan: 6.5};
+
+var _mark = new Int32Array(NN), _lm = new Int32Array(NN), _stamp = 0;
+var _g = [], _ownSize = 0, _ownLibs = 0;
+// idx を含む連を out に入れ、呼吸点の数を返す
+function scanGroup(board, idx, out){
+  var color = board[idx], st = ++_stamp, libs = 0, k, j;
+  out.length = 0; out.push(idx); _mark[idx] = st;
+  for (k = 0; k < out.length; k++){
+    var nb = NB[out[k]];
+    for (j = 0; j < nb.length; j++){
+      var q = nb[j], v = board[q];
+      if (v === 0){ if (_lm[q] !== st){ _lm[q] = st; libs++; } }
+      else if (v === color && _mark[q] !== st){ _mark[q] = st; out.push(q); }
+    }
+  }
+  return libs;
+}
+// board を直接書き換える。idx は空点。取った石の配列を返す。自殺手なら元に戻して null。
+function placeStone(board, idx, p){
+  board[idx] = p;
+  var caps = [], nb = NB[idx], j, q, s;
+  for (j = 0; j < nb.length; j++){
+    q = nb[j];
+    if (board[q] === -p && scanGroup(board, q, _g) === 0){
+      for (s = 0; s < _g.length; s++){ board[_g[s]] = 0; caps.push(_g[s]); }
+    }
+  }
+  var libs = scanGroup(board, idx, _g);
+  if (libs === 0){ board[idx] = 0; return null; }
+  _ownSize = _g.length; _ownLibs = libs;
+  return caps;
+}
+// 置き石（9路）：星＝3-3の4隅と天元。置く順は 右上→左下→右下→左上→天元（日本棋院「囲碁の基本：対局のルール・流れ」の1図
+// https://www.nihonkiin.or.jp/teach/lesson/school/start.html ＝19路と同じ形）。
+// 2026-10-26：前は 右下→左上→… で2子・3子が左右逆だった（sgfmill との突き合わせの開始局面で見つかった）
+var HANDI_ORDER = [2 * 9 + 6, 6 * 9 + 2, 6 * 9 + 6, 2 * 9 + 2, 4 * 9 + 4];
+function handiPoints(n){ return n >= 2 && n <= 5 ? HANDI_ORDER.slice(0, n) : []; }
+// コミの既定値：置き石があれば0、なければ数え方ごと
+function defaultKomi(rule, n){ return n > 0 ? 0 : RULE_KOMI[rule]; }
+function initState(handi){
+  var b = new Array(NN).fill(0), hp = handiPoints(handi | 0);
+  for (var k = 0; k < hp.length; k++) b[hp[k]] = BLACK;
+  return {board: b, player: hp.length ? WHITE : BLACK, ko: -1, passes: 0, capB: 0, capW: 0, last: -1, n: 0};
+}
+// capB＝黒が取った白石の数（黒のアゲハマ）、capW＝白が取った黒石の数
+function playMove(st, idx){
+  if (idx < 0 || idx >= NN || st.board[idx] !== 0 || idx === st.ko) return null;
+  var nb = st.board.slice(), caps = placeStone(nb, idx, st.player);
+  if (caps === null) return null;
+  var ko = (caps.length === 1 && _ownSize === 1 && _ownLibs === 1) ? caps[0] : -1;
+  return {board: nb, player: -st.player, ko: ko, passes: 0,
+    capB: st.capB + (st.player === BLACK ? caps.length : 0),
+    capW: st.capW + (st.player === WHITE ? caps.length : 0), last: idx, n: st.n + 1};
+}
+function passMove(st){
+  return {board: st.board, player: -st.player, ko: -1, passes: st.passes + 1,
+    capB: st.capB, capW: st.capW, last: -1, n: st.n + 1};
+}
+function isOver(st){ return st.passes >= 2; }
+function legalMoves(st){
+  var m = [];
+  for (var i = 0; i < NN; i++) if (playMove(st, i) !== null) m.push(i);
+  return m;
+}
+function groupOf(board, idx){ var out = []; scanGroup(board, idx, out); return out; }
+function libertiesOf(board, idx){ var out = []; return scanGroup(board, idx, out); }
+function coordName(idx){ return "ABCDEFGHJ".charAt(idx % SIZE) + String(SIZE - ((idx / SIZE) | 0)); }
+
+function isOwnEye(board, i, p){
+  var nb = NB[i], j, bad = 0;
+  for (j = 0; j < nb.length; j++) if (board[nb[j]] !== p) return false;
+  var dg = DIAG[i];
+  for (j = 0; j < dg.length; j++) if (board[dg[j]] === -p) bad++;
+  return OFFB[i] > 0 ? bad === 0 : bad <= 1;
+}
+// 盤の領域分け：own[i]＝石はその色、空点は片方の色だけに接していればその色、両方か無接触なら 0
+function scoreArea(board){
+  var own = new Int8Array(NN), seen = new Uint8Array(NN), b = 0, w = 0, i, j;
+  for (i = 0; i < NN; i++){
+    if (board[i] !== 0){ own[i] = board[i]; if (board[i] === BLACK) b++; else w++; continue; }
+    if (seen[i]) continue;
+    var stack = [i], region = [], tb = false, tw = false;
+    seen[i] = 1;
+    while (stack.length){
+      var x = stack.pop(); region.push(x);
+      var nb = NB[x];
+      for (j = 0; j < nb.length; j++){
+        var q = nb[j];
+        if (board[q] === BLACK) tb = true; else if (board[q] === WHITE) tw = true;
+        else if (!seen[q]){ seen[q] = 1; stack.push(q); }
+      }
+    }
+    var o = (tb && !tw) ? BLACK : ((tw && !tb) ? WHITE : 0);
+    for (j = 0; j < region.length; j++) own[region[j]] = o;
+    if (o === BLACK) b += region.length; else if (o === WHITE) w += region.length;
+  }
+  return {b: b, w: w, own: own};
+}
+// 終局の数え方。rule: "area"(中国) | "japan"(日本) | "stone"(純碁)。dead[i]＝死に石の印。
+// opts: {komi, capB, capW}（日本ルールのアゲハマ＝対局中に取った石）
+function finalResult(board, dead, rule, opts){
+  opts = opts || {};
+  rule = rule || "area";
+  var komi = opts.komi === undefined ? RULE_KOMI[rule] : opts.komi;
+  var nb = board.slice(), deadB = 0, deadW = 0, i;
+  for (i = 0; i < NN; i++){
+    if (dead && dead[i] && nb[i] !== 0){ if (nb[i] === BLACK) deadB++; else deadW++; nb[i] = 0; }
+  }
+  var sc = scoreArea(nb), b = 0, w = 0, terrB = 0, terrW = 0, stB = 0, stW = 0;
+  for (i = 0; i < NN; i++){
+    if (nb[i] === BLACK) stB++; else if (nb[i] === WHITE) stW++;
+    else if (sc.own[i] === BLACK) terrB++; else if (sc.own[i] === WHITE) terrW++;
+  }
+  var prisB = (opts.capB || 0) + deadW, prisW = (opts.capW || 0) + deadB;
+  if (rule === "stone"){ b = stB; w = stW; }
+  else if (rule === "japan"){ b = terrB + prisB; w = terrW + prisW; }
+  else { b = stB + terrB; w = stW + terrW; }
+  var margin = b - (w + komi);
+  return {rule: rule, komi: komi, b: b, w: w, stB: stB, stW: stW, terrB: terrB, terrW: terrW,
+    prisB: prisB, prisW: prisW, margin: margin, winner: margin > 0 ? BLACK : (margin < 0 ? WHITE : 0), own: sc.own};
+}
+
+// ---- コンピュータ ----
+var _em = [];
+function rollout(board, player, ko, passes, maxMoves){
+  var cp = passes, moved = 0, i, r;
+  while (cp < 2 && moved < maxMoves){
+    _em.length = 0;
+    for (i = 0; i < NN; i++) if (board[i] === 0 && i !== ko) _em.push(i);
+    var done = false;
+    while (_em.length){
+      r = (Math.random() * _em.length) | 0; i = _em[r]; _em[r] = _em[_em.length - 1]; _em.pop();
+      if (isOwnEye(board, i, player)) continue;
+      var caps = placeStone(board, i, player);
+      if (caps === null) continue;
+      ko = (caps.length === 1 && _ownSize === 1 && _ownLibs === 1) ? caps[0] : -1;
+      done = true; break;
+    }
+    if (done) cp = 0; else { cp++; ko = -1; }
+    player = -player; moved++;
+  }
+  var sc = scoreArea(board);
+  return sc.b - sc.w;
+}
+function aiCandidates(st){
+  var out = [], p = st.player;
+  for (var i = 0; i < NN; i++) if (st.board[i] === 0 && i !== st.ko && !isOwnEye(st.board, i, p)) out.push(i);
+  return out;
+}
+function weakMove(st){
+  var em = aiCandidates(st);
+  while (em.length){
+    var r = (Math.random() * em.length) | 0, i = em[r];
+    em[r] = em[em.length - 1]; em.pop();
+    if (playMove(st, i) !== null) return i;
+  }
+  return PASS;
+}
+function midMove(st){
+  var p = st.player, b = st.board, em = aiCandidates(st), best = -1e9, bm = PASS, k, j;
+  for (k = 0; k < em.length; k++){
+    var i = em[k], nbd = b.slice(), caps = placeStone(nbd, i, p);
+    if (caps === null) continue;
+    var ownLibs = _ownLibs, sc = caps.length * 10;
+    var nb = NB[i], seen = {};
+    for (j = 0; j < nb.length; j++){
+      var q = nb[j];
+      if (b[q] === p){
+        var key = groupOf(b, q).join(",");
+        if (!seen[key] && libertiesOf(b, q) === 1){ seen[key] = 1; if (ownLibs >= 2) sc += 9 + key.split(",").length; }
+      } else if (b[q] === -p && nbd[q] === -p && libertiesOf(nbd, q) === 1) sc += 4;
+    }
+    if (ownLibs === 1 && caps.length === 0) sc -= 12;
+    var r = (i / SIZE) | 0, c = i % SIZE;
+    if (r === 0 || c === 0 || r === SIZE - 1 || c === SIZE - 1) sc -= 1.5;
+    sc -= (Math.abs(r - 4) + Math.abs(c - 4)) * 0.15;
+    sc += Math.random() * 2;
+    if (sc > best){ best = sc; bm = i; }
+  }
+  return bm;
+}
+var lastStats = {playouts: 0, winrate: 0};
+function makeNode(st, parent, move){
+  return {st: st, parent: parent, move: move, children: [], untried: null, done: false, w: 0, v: 0, mover: -st.player};
+}
+function expandNode(node){
+  var st = node.st, i, r;
+  if (node.untried === null){
+    node.untried = [];
+    for (i = 0; i < NN; i++) if (st.board[i] === 0 && i !== st.ko && !isOwnEye(st.board, i, st.player)) node.untried.push(i);
+  }
+  while (node.untried.length){
+    r = (Math.random() * node.untried.length) | 0; i = node.untried[r];
+    node.untried[r] = node.untried[node.untried.length - 1]; node.untried.pop();
+    var ns = playMove(st, i);
+    if (ns){ var ch = makeNode(ns, node, i); node.children.push(ch); return ch; }
+  }
+  node.done = true;
+  if (node.children.length === 0 || st.passes >= 1){
+    var pc = makeNode(passMove(st), node, PASS); node.children.push(pc); return pc;
+  }
+  return null;
+}
+function selectChild(node){
+  var best = null, bv = -Infinity, lg = Math.log(node.v + 1);
+  for (var i = 0; i < node.children.length; i++){
+    var c = node.children[i];
+    var u = c.v === 0 ? 1e9 : c.w / c.v + 0.8 * Math.sqrt(lg / c.v);
+    if (u > bv){ bv = u; best = c; }
+  }
+  return best;
+}
+// UCT：ランダムに最後まで打つ試行を時間いっぱい。勝率の高い（最も訪れた）手を返す。
+function mctsMove(st, timeMs, maxPlayouts, canResign, komi){
+  var root = makeNode(st, null, -2), t0 = Date.now(), count = 0;
+  while (count < maxPlayouts){
+    if ((count & 15) === 0 && Date.now() - t0 >= timeMs) break;
+    var node = root;
+    for (;;){
+      if (node.st.passes >= 2) break;
+      if (!node.done){ var c = expandNode(node); if (c){ node = c; break; } }
+      if (!node.children.length) break;
+      node = selectChild(node);
+    }
+    var diff = node.st.passes >= 2 ? (function(){ var s = scoreArea(node.st.board); return s.b - s.w; })()
+      : rollout(node.st.board.slice(), node.st.player, node.st.ko, node.st.passes, 160);
+    var res = diff - komi;
+    for (var n = node; n; n = n.parent){
+      n.v++;
+      var mv = n.mover;
+      n.w += res === 0 ? 0.5 : ((mv === BLACK) === (res > 0) ? 1 : 0);
+    }
+    count++;
+  }
+  var best = null;
+  for (var i = 0; i < root.children.length; i++){
+    var ch = root.children[i];
+    if (!best || ch.v > best.v) best = ch;
+  }
+  lastStats = {playouts: count, winrate: best && best.v ? best.w / best.v : 0};
+  if (!best) return PASS;
+  if (canResign && st.n >= 24 && best.v >= 60 && best.w / best.v < 0.05) return RESIGN;
+  return best.move;
+}
+// level: "weak" | "mid" | "strong"。opts: {timeMs, maxPlayouts, resign, komi}。返り値：交点の番号／PASS／RESIGN
+function chooseMove(st, level, opts){
+  opts = opts || {};
+  var komi = opts.komi === undefined ? KOMI : opts.komi, p = st.player;
+  if (st.passes >= 1){ // 相手がパスしたとき：全部生きとして数えて勝っているなら、こちらもパスして終える
+    var sc = scoreArea(st.board), m = sc.b - sc.w - komi;
+    if (p === BLACK ? m > 0 : m < 0) return PASS;
+  }
+  if (level === "weak") return weakMove(st);
+  if (level === "mid") return midMove(st);
+  var timeMs = opts.timeMs === undefined ? 1000 : opts.timeMs;
+  return mctsMove(st, timeMs, opts.maxPlayouts || 1e9, opts.resign !== false, komi);
+}
+
+// ---- はじめての人への練習問題（本対局と同じ playMove／libertiesOf で判定） ----
+function idxOf(rc){ return rc[0] * SIZE + rc[1]; }
+var PRACTICE = [
+  {id: "capture", title: "問1　石を取ってみよう", ask: "黒番です。白石を1つ取れる所に打ってください。",
+   hint: "白石の呼吸点（上下左右の空き）を数えてみましょう。残りは1つだけです。",
+   b: [[0,1],[1,0],[2,1]], w: [[1,1]], player: BLACK, target: [1,1]},
+  {id: "escape", title: "問2　アタリから逃げよう", ask: "黒番です。真ん中の黒石は呼吸点が1つ（アタリ）です。呼吸点を増やして逃げてください。",
+   hint: "黒石の残りの呼吸点は下の1つです。そこに打ってつなげると、呼吸点が増えます。",
+   b: [[1,1]], w: [[0,1],[1,0],[1,2]], player: BLACK, target: [1,1]},
+  {id: "suicide", title: "問3　打てない所はどこ？", ask: "黒番です。ここには打てない所（自殺手）が1か所あります。そこを押してください。",
+   hint: "隅の点を見てください。そこに黒を置くと、上下左右が白と盤の端で、呼吸点がありません。",
+   b: [], w: [[0,1],[0,2],[1,0],[1,1]], player: BLACK, target: [0,0]},
+  {id: "ko", title: "問4　コウ：すぐ取り返せない", ask: "まず黒で、白石（真ん中の左）を取ってください。そのあと白で、すぐに取り返せるか試してください。",
+   hint: "1手目は左の端の点です。2手目（白番）は、取られた所（赤い四角）を押してみましょう。",
+   hint2: "白が取り返そうとするのは、赤い四角の所です。",
+   b: [[1,1],[3,1],[2,2]], w: [[1,0],[3,0],[2,1]], player: BLACK, ans0: [2,0], ko: [2,1]},
+  {id: "eyes", title: "問5　目が2つあると取れない", ask: "黒番です。上の白いグループを取れるか、白の中の空き（目）に打ってみてください。",
+   hint: "白の中の空き点は2つ。どちらに黒を打っても、黒の呼吸点が無くなります。",
+   b: [[0,4],[1,4],[2,0],[2,1],[2,2],[2,3]], w: [[0,1],[0,3],[1,0],[1,1],[1,2],[1,3]], player: BLACK, eyes: [[0,0],[0,2]]}
+];
+function practiceState(pz){
+  var st = initState(), i;
+  for (i = 0; i < pz.b.length; i++) st.board[idxOf(pz.b[i])] = BLACK;
+  for (i = 0; i < pz.w.length; i++) st.board[idxOf(pz.w[i])] = WHITE;
+  st.player = pz.player;
+  return st;
+}
+// 返り値 {ok, msg, st, next}。ko は stage 0（黒が取る）→ stage 1（白が取り返そうとする）
+function judgePractice(pz, st, idx, stage){
+  if (st.board[idx] !== 0) return {ok: false, msg: "そこには石があります。空いている交点を押してください。", st: st};
+  var ns = playMove(st, idx), i;
+  if (pz.id === "capture"){
+    if (!ns) return {ok: false, msg: "そこには打てません。", st: st};
+    if (ns.board[idxOf(pz.target)] === 0) return {ok: true, msg: "正解！ 呼吸点をふさいで、白石が取れました。", st: ns};
+    return {ok: false, msg: "白石はまだ取れていません。白石の呼吸点（上下左右の空き）をふさぎましょう。", st: st};
+  }
+  if (pz.id === "escape"){
+    if (!ns) return {ok: false, msg: "そこには打てません。", st: st};
+    if (libertiesOf(ns.board, idxOf(pz.target)) >= 2) return {ok: true, msg: "正解！ つなげて呼吸点が増え、すぐには取られません。", st: ns};
+    return {ok: false, msg: "まだ呼吸点が1つのままです（アタリ）。呼吸点が増える所を探しましょう。", st: st};
+  }
+  if (pz.id === "suicide"){
+    if (idx === idxOf(pz.target) && !ns) return {ok: true, msg: "正解！ そこに打つと黒石の呼吸点が無くなる（自殺手）ので、打てません。", st: st};
+    if (ns) return {ok: false, msg: "そこは普通に打てます。打てない所（呼吸点が無くなる所）を探しましょう。", st: st};
+    return {ok: false, msg: "そこも打てませんが、探しているのは別の所です。", st: st};
+  }
+  if (pz.id === "eyes"){
+    if (!ns){
+      for (i = 0; i < pz.eyes.length; i++) if (idx === idxOf(pz.eyes[i]))
+        return {ok: true, msg: "正解！ 目の中に打つと黒が自殺手になり、打てません。目が2つあるグループは取れません（生き）。", st: st};
+      return {ok: false, msg: "そこは打てませんが、白の目の中ではありません。", st: st};
+    }
+    return {ok: false, msg: "そこには打てますが、白石は取れません。白の中の空き（目）に打ってみましょう。", st: st};
+  }
+  if (pz.id === "ko"){
+    if (stage === 0){
+      if (idx === idxOf(pz.ans0) && ns) return {ok: false, next: true, msg: "黒が白石を1つ取りました。今度は白の番です。赤い四角の所に白で取り返してみましょう。", st: ns};
+      return {ok: false, msg: "まだ取れていません。白石の呼吸点が1つだけ残っている所を探しましょう。", st: st};
+    }
+    if (idx === st.ko && !ns) return {ok: true, msg: "正解！ これがコウです。1子を取られた所には、すぐには取り返せません。別の所に1手打ってからなら取り返せます。", st: st};
+    if (ns) return {ok: false, msg: "そこには打てますが、取り返しではありません。赤い四角の所を押してみましょう。", st: st};
+    return {ok: false, msg: "そこには打てません。", st: st};
+  }
+  return {ok: false, msg: "", st: st};
+}
+
+// ---- 友だちと対局（shared/friendplay.js）に渡す adapter ----
+// 手は coordName と同じ呼び名の文字列（列 A〜J で I を飛ばす・行は下から 1〜9。例 "E5"＝天元・"A9"＝左上）か "pass"。
+// 禁じ手の判定は本対局と同じ playMove（自殺手・コウ）。終局＝2回続けてパス。死に石を選ぶ段は置かず、
+// 盤の上の石は全部生きとして数える（2人で死に石を決め合う画面を作らないため＝死んだ石は取り切ってから2回パスする）。
+// コミは数え方の初期値（defaultKomi：中国 7・日本 6.5・純碁 7、置き石のときは 0）。
+var NET_RULE_NAME = {area: "中国ルール", stone: "純碁", japan: "日本ルール"};
+function parseCoord(s){
+  if (typeof s !== "string" || !/^[A-HJ][1-9]$/.test(s)) return -1;
+  return (SIZE - +s.charAt(1)) * SIZE + "ABCDEFGHJ".indexOf(s.charAt(0));
+}
+function netRule(rule){ return Object.prototype.hasOwnProperty.call(NET_RULE_NAME, rule) ? rule : "area"; }
+var GO_ADAPTER = {
+  id: "go9",
+  // 先頭が既定（本対局の「数え方」の初期値と同じ中国ルール）。id と表示は本対局の select と同じ
+  rules: [{id: "area", label: "中国ルール"}, {id: "stone", label: "純碁"}, {id: "japan", label: "日本ルール"}],
+  // 置き石は本対局と同じ 2〜5子（星に置き・白から・コミ0＝日本棋院の説明どおり）
+  handicaps: [{id: "", label: "なし"}, {id: "2", label: "置き石 2子（コミ0）"}, {id: "3", label: "置き石 3子（コミ0）"},
+    {id: "4", label: "置き石 4子（コミ0）"}, {id: "5", label: "置き石 5子（コミ0）"}],
+  sideLabel: function(side, handicap){
+    if (side !== "first") return "白";
+    return /^[2-5]$/.test(handicap || "") ? "黒（置き石 " + handicap + "子）" : "黒（先番）";
+  },
+  initial: function(handicap, rule){
+    var n = /^[2-5]$/.test(handicap || "") ? +handicap : 0, r = netRule(rule), st = initState(n);
+    st.rule = r; st.komi = defaultKomi(r, n); st.handi = n; st.passed = 0;
+    return st;
+  },
+  // 入力の局面は書き換えない（playMove は盤を写してから打つ・パスも盤を写す）。passed＝直前にパスした色（無ければ 0）
+  play: function(st, mv){
+    if (!st || isOver(st)) return null;
+    var ns;
+    if (mv === "pass"){
+      ns = passMove(st); ns.board = st.board.slice(); ns.passed = st.player;
+    } else {
+      var idx = parseCoord(mv);
+      if (idx < 0) return null;
+      ns = playMove(st, idx);
+      if (!ns) return null;
+      ns.passed = 0;
+    }
+    ns.rule = st.rule; ns.komi = st.komi; ns.handi = st.handi;
+    return ns;
+  },
+  turn: function(st){ return st.player === BLACK ? "first" : "second"; },
+  result: function(st){
+    if (!isOver(st)) return null;
+    var rule = netRule(st.rule), komi = typeof st.komi === "number" ? st.komi : defaultKomi(rule, st.handi | 0);
+    var r = finalResult(st.board, null, rule, {komi: komi, capB: st.capB, capW: st.capW}), m = Math.abs(r.margin);
+    return {winner: r.winner === BLACK ? "first" : r.winner === WHITE ? "second" : "draw",
+      text: NET_RULE_NAME[rule] + "　黒 " + r.b + " − 白 " + r.w + "（白にコミ " + r.komi + " 目" + (m ? "、" + m + "目差" : "") +
+        "。盤の石は全部生きとして数えた）"};
+  }
+};
+// ===== LOGIC-END =====
+
+// ===== FRIENDPLAY-BEGIN（元＝shared/friendplay.js。直すのは元のファイルで、`python shared/embed.py` で4つのページに配る）=====
+// 友だちと対局：claude.ai の Artifact の db（見る人どうしで共有する記録）と user（いま見ている人）で、
+// 対局の一覧・手の記録・レーティング（イロ式）を受け持つ。盤の描き方と手の正しさは各ゲームの adapter に任せる。
+//   adapter = { id, sideLabel(side, handicap, rule), handicaps:[{id,label}], rules:[{id,label}]（任意）, initial(handicap, rule),
+//               play(state, move)→新しい局面 or null, turn(state)→"first"|"second", result(state)→null | {winner:"first"|"second"|"draw", text} }
+//   先手・後手は adapter の言い方で「first」「second」。handicaps と rules の先頭（id ""）が平手・既定。ハンデ戦はレーティングに入れない。
+// 2026-10-26 Claude（Opus）。萩野「ログイン機能とかレーティングもつけて友達同士で対戦させると面白い」。
+var FriendPlay = (function(){
+  var K = 32, START = 1500, LEASE_MS = 3000;
+
+  function now(){ return new Date().toISOString(); }
+  function other(side){ return side === "first" ? "second" : "first"; }
+  function fail(code, message){ var e = new Error(message); e.code = code; return e; }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function seatOf(g, key){ return !g || !g.seats ? null : g.seats.first === key ? "first" : g.seats.second === key ? "second" : null; }
+
+  // 手の列を最初から並べ直す。返す：{state, bad（正しくない手の位置・無ければ -1）}
+  function replay(adapter, g){
+    var st = adapter.initial(g.handicap || "", g.rule || ""), moves = g.moves || [];
+    for (var i = 0; i < moves.length; i++){
+      var ns = adapter.play(st, moves[i]);
+      if (!ns) return {state: st, bad: i};
+      st = ns;
+    }
+    return {state: st, bad: -1};
+  }
+
+  // レーティング：終わった平手の対局を終わった順に並べ、毎回最初から数え直す（各自が点を書かない＝二重に数えない）
+  function ratings(games){
+    var done = games.filter(function(g){
+      return g && g.status === "done" && g.rated && g.result && g.finishedAt && g.seats &&
+        g.seats.first && g.seats.second && g.seats.first !== g.seats.second;
+    }).slice().sort(function(a, b){
+      if (a.finishedAt !== b.finishedAt) return a.finishedAt < b.finishedAt ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    var table = {}, delta = {};
+    function get(k){ return table[k] || (table[k] = {r: START, n: 0, w: 0, l: 0, d: 0}); }
+    done.forEach(function(g){
+      var a = get(g.seats.first), b = get(g.seats.second);
+      var ea = 1 / (1 + Math.pow(10, (b.r - a.r) / 400));
+      var sa = g.result.winner === "first" ? 1 : g.result.winner === "second" ? 0 : 0.5;
+      var da = K * (sa - ea);
+      a.r += da; b.r -= da; a.n++; b.n++;
+      if (sa === 1){ a.w++; b.l++; } else if (sa === 0){ a.l++; b.w++; } else { a.d++; b.d++; }
+      delta[g.id] = {first: da, second: -da};
+    });
+    return {table: table, delta: delta};
+  }
+
+  // 同じ対局に2人が同時に書かないよう、短い札（lease）を取ってから最新を読み、書く
+  async function withLease(ref, holder, fn){
+    for (var t = 0; t < 8; t++){
+      var l = await ref.acquire({holder: holder, ttlMs: LEASE_MS});
+      if (l && l.acquired){
+        var s = await ref.get();
+        return await fn(s.exists ? s.data() : null);
+      }
+      await sleep(400 + Math.random() * 600);
+    }
+    throw fail("busy", "相手が書き込み中です。少し待ってからもう一度押してください。");
+  }
+
+  async function create(db, me, adapter, opt){
+    var side = opt.side === "random" ? (Math.random() < 0.5 ? "first" : "second") : opt.side;
+    var seats = {first: null, second: null}, t = now();
+    seats[side] = me.key;
+    var ref = db.collection("games").doc();
+    await ref.set({v: 1, game: adapter.id, status: "open", createdBy: me.key, createdAt: t, updatedAt: t,
+      seats: seats, handicap: opt.handicap || "", rule: opt.rule || "", rated: !opt.handicap, moves: [], result: null});
+    return ref.id;
+  }
+
+  async function join(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "この対局はもう始まったか、なくなりました。");
+      if (seatOf(g, me.key)) throw fail("self", "自分で作った対局です。相手が入るのを待ってください。");
+      var side = g.seats.first ? "second" : "first", t = now(), patch = {status: "playing", startedAt: t, updatedAt: t, seats: {}};
+      patch.seats[side] = me.key;
+      await ref.update(patch);
+      return side;
+    });
+  }
+
+  async function move(db, me, adapter, gid, mv, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var rp = replay(adapter, g);
+      if (rp.bad >= 0) throw fail("broken", "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。");
+      if (adapter.turn(rp.state) !== side) throw fail("notturn", "相手の番です。");
+      var ns = adapter.play(rp.state, mv);
+      if (!ns) throw fail("illegal", "その手は指せません。");
+      var t = now(), res = adapter.result(ns), patch = {moves: (g.moves || []).concat([mv]), updatedAt: t};
+      if (res){ patch.status = "done"; patch.finishedAt = t; patch.result = {winner: res.winner, reason: "end", text: res.text || ""}; }
+      await ref.update(patch);
+      return patch;
+    });
+  }
+
+  async function resign(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "playing") throw fail("closed", "この対局は終わっています。");
+      var side = seatOf(g, me.key);
+      if (!side) throw fail("notplayer", "あなたはこの対局の打ち手ではありません。");
+      var t = now();
+      await ref.update({status: "done", finishedAt: t, updatedAt: t, result: {winner: other(side), reason: "resign", text: ""}});
+    });
+  }
+
+  async function cancel(db, me, gid, holder){
+    var ref = db.doc("games/" + gid);
+    return withLease(ref, holder, async function(g){
+      if (!g || g.status !== "open") throw fail("closed", "もう始まった対局は取り消せません（投了はできます）。");
+      if (g.createdBy !== me.key) throw fail("notmine", "作った人だけが取り消せます。");
+      await ref.delete();
+    });
+  }
+
+  // ===== 画面（一覧・自分の名前・新しい対局・レーティング・対局中の帯）=====
+  function mount(opt){
+    var adapter = opt.adapter, root = opt.root, onView = opt.onView || function(){};
+    var tab = Math.random().toString(36).slice(2, 10);
+    var db = null, me = null, holder = "", booted = false, readOnly = false;
+    var games = [], names = {}, rate = {table: {}, delta: {}}, current = null, note = "", busy = false, resignArmed = null;
+
+    function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    function btn(text, fn, primary){ var b = el("button", primary ? "primary" : "", text); b.type = "button"; b.disabled = busy || readOnly; b.addEventListener("click", fn); return b; }
+    function nameOf(key){ return !key ? "（空き）" : (names[key] || "名前なし") + (me && key === me.key ? "（あなた）" : ""); }
+    function sideText(side, g){ return adapter.sideLabel(side, g ? g.handicap || "" : "", g ? g.rule || "" : ""); }
+    function label(list, id){ var f = (list || []).filter(function(x){ return x.id === id; })[0]; return f ? f.label : ""; }
+    function rr(key){ var x = rate.table[key]; return x ? Math.round(x.r) : START; }
+
+    function localKey(){
+      var k = null;
+      try { k = localStorage.getItem("friendplay.key"); } catch (e) {}
+      if (!k){ k = "g-" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); try { localStorage.setItem("friendplay.key", k); } catch (e) {} }
+      return k;
+    }
+
+    async function boot(){
+      if (booted) return; booted = true;
+      note = "つないでいます…"; draw();
+      var c = typeof window !== "undefined" ? window.claude : null;
+      if (!c || !c.use){ note = "友だちとの対局は、claude.ai でこのページを開いたときだけ使えます。"; draw(); return; }
+      db = await c.use("db");
+      var user = await c.use("user");
+      if (!db){ note = "友だちとの対局は、claude.ai にログインして開いたときだけ使えます。"; draw(); return; }
+      var id = user ? await user.id() : null;
+      me = {key: id || localKey()};
+      holder = me.key + ":" + tab;
+      var w = user ? await user.can("data.write") : null;
+      if (w === false) readOnly = true;
+      note = "";
+      db.collection("games").orderBy("createdAt", "desc").limit(1000).onSnapshot(function(snap){
+        games = snap.docs.map(function(d){ var x = {}, b = d.data(); for (var k in b) x[k] = b[k]; x.id = d.id; return x; });
+        rate = ratings(games);
+        draw(); emit();
+      }, function(e){ note = "記録を読めなくなりました（" + e.code + "）。ページを開き直してください。"; draw(); });
+      db.collection("players").onSnapshot(function(snap){
+        names = {};
+        snap.docs.forEach(function(d){ var b = d.data(); if (b && typeof b.name === "string") names[d.id] = b.name.slice(0, 16); });
+        draw(); emit();
+      }, function(){});
+    }
+
+    async function run(fn){
+      if (busy) return;
+      busy = true; note = ""; draw();
+      try { await fn(); }
+      catch (e){
+        if (e && e.code === "invalid_argument"){ readOnly = true; note = "この画面からは書き込めません（見るだけ）。対局するには、ページの持ち主に『編集者』としてメールで招いてもらってください。"; }
+        else note = (e && e.message) || "うまくいきませんでした。";
+      }
+      busy = false; draw(); emit();
+    }
+
+    function view(){
+      if (!current) return null;
+      var g = games.filter(function(x){ return x.id === current; })[0];
+      if (!g) return {gid: current, gone: true, statusText: "この対局は取り消されました。"};
+      var rp = replay(adapter, g), side = me ? seatOf(g, me.key) : null, turn = adapter.turn(rp.state);
+      var canMove = g.status === "playing" && side === turn && rp.bad < 0 && !busy && !readOnly;
+      var t;
+      if (rp.bad >= 0) t = "記録に正しくない手があります（" + (rp.bad + 1) + "手目）。この対局は続けられません。";
+      else if (g.status === "open") t = side ? "相手を待っています。友だちがこのページを開いて『参加する』を押すと始まります。" : "まだ相手が決まっていません。";
+      else if (g.status === "playing") t = canMove ? "あなたの番です：" + sideText(side, g) + "。" : side ? "相手の番です：" + nameOf(g.seats[other(side)]) + "。指されると盤が自動で進みます。" : "観戦中：" + sideText(turn, g) + "の番です。";
+      else {
+        var r = g.result || {}, wtxt = r.winner === "draw" ? "引き分け" : sideText(r.winner, g) + "・" + nameOf(g.seats[r.winner]) + "の勝ち";
+        t = "終局" + (r.text ? "　" + r.text : "") + "　" + wtxt + (r.reason === "resign" ? "（投了）" : "");
+        var d = rate.delta[g.id];
+        if (d && side) t += "　レート " + (d[side] >= 0 ? "+" : "") + Math.round(d[side]);
+        else if (!g.rated) t += "（ハンデ戦なのでレーティングには入れません）";
+      }
+      return {gid: g.id, game: g, state: rp.state, mySide: side, canMove: canMove, statusText: t,
+        players: {first: nameOf(g.seats.first), second: nameOf(g.seats.second)}};
+    }
+    function emit(){ onView(current ? view() : null); }
+
+    function row(g){
+      var li = el("li", "fp-row"), side = me ? seatOf(g, me.key) : null;
+      var who = sideText("first", g) + " " + nameOf(g.seats.first) + " ／ " + sideText("second", g) + " " + nameOf(g.seats.second);
+      var extra = [g.rule ? label(adapter.rules, g.rule) : "", g.handicap ? label(adapter.handicaps, g.handicap) : ""].filter(Boolean).join("・");
+      li.appendChild(el("span", "fp-who", who + (extra ? "（" + extra + "）" : "") + (g.status === "playing" ? "　" + (g.moves || []).length + "手" : "")));
+      var acts = el("span", "fp-acts");
+      if (g.status === "open"){
+        if (side) acts.appendChild(btn("取り消す", function(){ run(function(){ return cancel(db, me, g.id, holder); }); }));
+        else acts.appendChild(btn("参加する", function(){ run(async function(){ await join(db, me, g.id, holder); current = g.id; }); }, true));
+        if (side){ var o = btn("開く", function(){ current = g.id; draw(); emit(); }); o.disabled = false; acts.appendChild(o); }
+      } else {
+        var b = btn(side && g.status === "playing" ? "続ける" : g.status === "playing" ? "観戦する" : "盤を見る", function(){ current = g.id; draw(); emit(); }, side && g.status === "playing");
+        b.disabled = false; acts.appendChild(b);
+      }
+      li.appendChild(acts);
+      return li;
+    }
+
+    function draw(){
+      if (!root) return;
+      root.textContent = "";
+      var box = el("div", "fp-box"); // "fp" は将棋の図の CSS と同じ名前になるので使わない
+      function pair(lab, ctl){ var s = el("span", "fp-pair"); s.appendChild(lab); s.appendChild(ctl); return s; }
+      box.appendChild(el("h2", "fp-h", "友だちと対局"));
+      if (note) box.appendChild(el("p", "fp-note", note));
+      if (!db || !me){ root.appendChild(box); return; }
+      if (readOnly) box.appendChild(el("p", "fp-note", "この画面からは書き込めません（見るだけ）。観戦とレーティングは見られます。"));
+
+      if (current){
+        var v = view(), bar = el("div", "fp-bar");
+        if (v && v.game){
+          bar.appendChild(el("p", "fp-who", sideText("first", v.game) + "：" + v.players.first + "（" + rr(v.game.seats.first) + "）"));
+          bar.appendChild(el("p", "fp-who", sideText("second", v.game) + "：" + v.players.second + "（" + rr(v.game.seats.second) + "）"));
+        }
+        var acts = el("div", "fp-acts");
+        if (v && v.game && v.game.status === "playing" && v.mySide){
+          acts.appendChild(btn("投了する", function(){
+            // 確認の窓（confirm）は出さない＝2度押しで投了
+            if (resignArmed !== current){ resignArmed = current; note = "もう一度『投了する』を押すと投了します。"; draw(); return; }
+            resignArmed = null; run(function(){ return resign(db, me, current, holder); });
+          }));
+        }
+        var back = btn("一覧へ戻る", function(){ current = null; resignArmed = null; note = ""; draw(); emit(); });
+        back.disabled = false; acts.appendChild(back);
+        bar.appendChild(acts);
+        box.appendChild(bar);
+        root.appendChild(box);
+        return;
+      }
+
+      // 自分の名前
+      var nm = el("div", "fp-sec"), lab = el("label", "", "あなたの名前（相手に見えます）"), inp = el("input");
+      inp.type = "text"; inp.maxLength = 16; inp.value = names[me.key] || ""; inp.id = "fp-name-" + tab; lab.htmlFor = inp.id;
+      nm.appendChild(lab); nm.appendChild(inp);
+      nm.appendChild(btn("名前を保存", function(){
+        var s = inp.value.trim().slice(0, 16);
+        if (!s){ note = "名前を入れてください。"; draw(); return; }
+        run(function(){ return db.doc("players/" + me.key).set({name: s, updatedAt: now()}); });
+      }));
+      box.appendChild(nm);
+
+      // 新しい対局
+      var nw = el("div", "fp-sec");
+      nw.appendChild(el("h3", "", "新しい対局を作って待つ"));
+      var sideSel = el("select"); sideSel.id = "fp-side-" + tab;
+      [["first", sideText("first", null)], ["second", sideText("second", null)], ["random", "おまかせ"]].forEach(function(o){ var op = el("option", "", o[1]); op.value = o[0]; sideSel.appendChild(op); });
+      var sl = el("label", "", "あなたは"); sl.htmlFor = sideSel.id;
+      nw.appendChild(pair(sl, sideSel));
+      var hcSel = null, ruleSel = null;
+      if (adapter.rules && adapter.rules.length){
+        ruleSel = el("select"); ruleSel.id = "fp-rule-" + tab;
+        adapter.rules.forEach(function(r){ var op = el("option", "", r.label); op.value = r.id; ruleSel.appendChild(op); });
+        var rl = el("label", "", "ルール"); rl.htmlFor = ruleSel.id;
+        nw.appendChild(pair(rl, ruleSel));
+      }
+      if (adapter.handicaps && adapter.handicaps.length){
+        hcSel = el("select"); hcSel.id = "fp-hc-" + tab;
+        adapter.handicaps.forEach(function(h){ var op = el("option", "", h.label); op.value = h.id; hcSel.appendChild(op); });
+        var hl = el("label", "", "ハンデ"); hl.htmlFor = hcSel.id;
+        nw.appendChild(pair(hl, hcSel));
+        hcSel.addEventListener("change", function(){
+          var h = hcSel.value;
+          [].forEach.call(sideSel.options, function(op){ if (op.value !== "random") op.textContent = adapter.sideLabel(op.value, h, ruleSel ? ruleSel.value : ""); });
+        });
+      }
+      nw.appendChild(btn("作って待つ", function(){
+        if (!names[me.key]){ note = "先に、あなたの名前を保存してください。"; draw(); return; }
+        var o = {side: sideSel.value, handicap: hcSel ? hcSel.value : "", rule: ruleSel ? ruleSel.value : ""};
+        run(async function(){ current = await create(db, me, adapter, o); });
+      }, true));
+      box.appendChild(nw);
+
+      // 一覧
+      var open = games.filter(function(g){ return g.status === "open"; });
+      var playing = games.filter(function(g){ return g.status === "playing"; });
+      var done = games.filter(function(g){ return g.status === "done"; }).slice(0, 10);
+      [["相手を待っている対局", open, "いまは、ありません。"], ["対局中", playing, "いまは、ありません。"], ["終わった対局（新しい順に10）", done, "まだ、ありません。"]].forEach(function(s){
+        var sec = el("div", "fp-sec");
+        sec.appendChild(el("h3", "", s[0]));
+        if (!s[1].length) sec.appendChild(el("p", "fp-empty", s[2]));
+        else { var ul = el("ul", "fp-list"); s[1].forEach(function(g){ ul.appendChild(row(g)); }); sec.appendChild(ul); }
+        box.appendChild(sec);
+      });
+
+      // レーティング
+      var rs = el("div", "fp-sec");
+      rs.appendChild(el("h3", "", "レーティング"));
+      var keys = Object.keys(rate.table).sort(function(a, b){ return rate.table[b].r - rate.table[a].r; });
+      if (!keys.length) rs.appendChild(el("p", "fp-empty", "平手の対局が1局終わると出ます（はじめは全員 1500）。"));
+      else {
+        var tw = el("div", "fp-tablewrap"), tb = el("table", "fp-table"), hd = el("tr");
+        ["順位", "名前", "レート", "成績"].forEach(function(h){ hd.appendChild(el("th", "", h)); });
+        tb.appendChild(hd);
+        keys.forEach(function(k, i){
+          var x = rate.table[k], tr = el("tr");
+          [String(i + 1), nameOf(k), String(Math.round(x.r)) + (x.n < 5 ? "（仮）" : ""), x.w + "勝" + x.l + "敗" + (x.d ? x.d + "分" : "")].forEach(function(c){ tr.appendChild(el("td", "", c)); });
+          tb.appendChild(tr);
+        });
+        tw.appendChild(tb); rs.appendChild(tw);
+      }
+      rs.appendChild(el("p", "fp-empty", "イロ式（はじめは 1500・1局で最大 ±32 動く）。5局までは（仮）。ハンデ戦は入れません。"));
+      box.appendChild(rs);
+
+      var dt = el("details", "fp-sec"), sm = el("summary", "", "友だちと遊ぶための準備（ページの持ち主がすること）");
+      dt.appendChild(sm);
+      ["1. 友だちにも claude.ai のアカウントが要ります（無料でよい）。",
+       "2. ページの右上の［共有］から、友だちのメールアドレスを『編集者』で招きます。招かれた人だけが手を指せます。",
+       "3. 公開リンク（だれでも見られる共有）を同時に出すと、外から招いた人は書き込めなくなります。対局に使うページは、リンクで共有しないでください。",
+       "4. 記録はこのページの中だけにあります。名前とレートは、ほかのゲームのページとは別です。"].forEach(function(s){ dt.appendChild(el("p", "", s)); });
+      box.appendChild(dt);
+      root.appendChild(box);
+    }
+
+    return {
+      show: function(){ if (root) root.hidden = false; draw(); boot(); emit(); },
+      hide: function(){ if (root) root.hidden = true; onView(null); },
+      active: function(){ return !!current; },
+      submit: function(mv){ if (!current || !db) return Promise.resolve(); var gid = current; return run(function(){ return move(db, me, adapter, gid, mv, holder); }); }
+    };
+  }
+
+  var CSS = ".fp-h{font-size:18px;margin:2px 0 6px}.fp-box h3{font-size:16px;margin:10px 0 4px}" +
+    ".fp-pair{display:inline-flex;align-items:center;gap:6px;max-width:100%;margin-right:8px}.fp-pair select{max-width:calc(100vw - 120px)}" +
+    ".fp-note{margin:6px 0;padding:6px 8px;border:1px solid var(--line,currentColor);border-radius:8px}" +
+    ".fp-sec{margin:8px 0}.fp-sec label{margin-right:6px}.fp-sec input{font:inherit;font-size:16px;min-height:44px;padding:4px 8px;border-radius:8px;border:1px solid var(--line,#999);background:transparent;color:inherit;max-width:100%}" +
+    ".fp-sec select,.fp-sec button,.fp-acts button{margin:4px 6px 4px 0}" +
+    ".fp-list{list-style:none;margin:0;padding:0}.fp-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px;padding:6px 0;border-top:1px solid var(--line,#ccc)}" +
+    ".fp-who{margin:2px 0;overflow-wrap:anywhere}.fp-empty{margin:4px 0;font-size:14px;opacity:.85}" +
+    ".fp-tablewrap{overflow-x:auto;max-width:100%}.fp-table{border-collapse:collapse;font-size:15px;width:100%}.fp-table th,.fp-table td{border-bottom:1px solid var(--line,#ccc);padding:4px 6px;text-align:left}.fp-table td:nth-child(3),.fp-table td:nth-child(4){white-space:nowrap}" +
+    ".fp-bar{display:flex;flex-direction:column;gap:2px}";
+  if (typeof document !== "undefined"){ var st = document.createElement("style"); st.textContent = CSS; document.head.appendChild(st); }
+
+  return {mount: mount, replay: replay, ratings: ratings, create: create, join: join, move: move, resign: resign, cancel: cancel, START: START, K: K};
+})();
+// ===== FRIENDPLAY-END =====
+
+// ===== UI =====
+(function(){
+  if (typeof document === "undefined") return;
+  var $ = function(id){ return document.getElementById(id); };
+  var NS = "http://www.w3.org/2000/svg";
+  var svg = $("board"), msgEl = $("msg");
+  var st, hist, phase, dead, counted, thinking, notice, resigned, resignArm = 0, resignTimer = null;
+
+  function mk(tag, attrs, cls){
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (cls) e.setAttribute("class", cls);
+    return e;
+  }
+  // 盤の下地・線・星は一度だけ作る
+  svg.appendChild(mk("rect", {x: .2, y: .2, width: 9.6, height: 9.6, rx: .25}, "bd-bg"));
+  for (var i = 0; i < SIZE; i++){
+    svg.appendChild(mk("line", {x1: 1, y1: i + 1, x2: 9, y2: i + 1}, "gline"));
+    svg.appendChild(mk("line", {x1: i + 1, y1: 1, x2: i + 1, y2: 9}, "gline"));
+  }
+  [[2,2],[2,6],[4,4],[6,2],[6,6]].forEach(function(p){ svg.appendChild(mk("circle", {cx: p[1] + 1, cy: p[0] + 1, r: .09}, "star")); });
+  var layer = mk("g", {}, "layer"); svg.appendChild(layer);
+
+  // 押せる点：盤の上に透明のボタンを 81 個重ねる（押せる範囲は前の「いちばん近い交点」と同じ・キーボードでも押せる）
+  // data-sq＝記録に残す手の呼び名（coordName）。2人の試験はこれで押す
+  var hits = $("hits");
+  for (var hi = 0; hi < NN; hi++){
+    var hb = document.createElement("button");
+    hb.type = "button"; hb.className = "pt";
+    hb.setAttribute("data-i", hi); hb.setAttribute("data-sq", coordName(hi)); hb.setAttribute("aria-label", coordName(hi));
+    hb.style.left = ((hi % SIZE) + .5) * 10 + "%"; hb.style.top = (((hi / SIZE) | 0) + .5) * 10 + "%";
+    hits.appendChild(hb);
+  }
+  hits.addEventListener("click", function(e){
+    var t = e.target && e.target.closest ? e.target.closest(".pt") : null;
+    if (t) onPoint(+t.getAttribute("data-i"));
+  });
+
+  var net = null, netView = null;
+  function netOn(){ return $("mode").value === "net"; }
+  function cpuOn(){ return $("mode").value === "cpu"; }
+  function myColor(){ return +$("me").value; }
+  // 友だちとの対局では、数え方とコミは対局を作ったときの記録（局面の rule・komi）から
+  function rule(){ return netOn() && st && st.rule ? st.rule : $("rule").value; }
+  function komi(){ return netOn() && st && typeof st.komi === "number" ? st.komi : +$("komi").value; }
+  function handi(){ return +$("handi").value; }
+  function isCpuTurn(){ return cpuOn() && phase === "play" && !resigned && st.player === -myColor(); }
+  function nameOf(p){ return p === BLACK ? "黒" : "白"; }
+  function fmt(x){ return String(x).replace(/\.5$/, ".5"); }
+
+  function newGame(){
+    var nt = netOn();
+    st = initState(nt ? 0 : handi()); hist = []; phase = "play"; dead = new Array(NN).fill(false); counted = false;
+    thinking = false; notice = ""; resigned = 0; disarm();
+    $("cpuOpts").style.display = cpuOn() ? "" : "none";
+    // 友だちとの対局：ルールと置き石は部品の「新しい対局」で選ぶ。待った・投了（部品の側にある）・最初からは隠す
+    $("localOpts").style.display = nt ? "none" : "";
+    ["undo", "resign", "reset"].forEach(function(id){ $(id).style.display = nt ? "none" : ""; });
+    $("localNote").hidden = nt; $("netNote").hidden = !nt;
+    if (nt){
+      if (!net) net = FriendPlay.mount({adapter: GO_ADAPTER, root: $("fpRoot"), onView: onNetView});
+      net.show();
+    } else if (net) net.hide();
+    render(); maybeCpu();
+  }
+  // 友だちとの対局：盤は記録から並べ直した局面（view.state）をそのまま描く。自分で局面を進めない
+  function onNetView(v){
+    netView = v;
+    if (!netOn()) return;
+    hist = []; thinking = false; resigned = 0; dead = new Array(NN).fill(false);
+    if (v && v.state){
+      st = v.state;
+      var end = isOver(st) || v.game.status === "done";
+      phase = end ? "netover" : "play";
+      counted = isOver(st); // 2回パスで終わった局面は、陣の印を出す（全部生きとして数えた形）
+      notice = st.passed && !end ? nameOf(st.passed) + "はパスしました。続けてパスすると終局です（盤の石は全部生きとして数えます）。" : "";
+    } else { st = initState(0); phase = "play"; counted = false; notice = ""; }
+    render();
+  }
+  function disarm(){ resignArm = 0; if (resignTimer){ clearTimeout(resignTimer); resignTimer = null; } $("resign").textContent = "投了"; }
+  function resultText(){
+    var r = finalResult(st.board, dead, rule(), {komi: komi(), capB: st.capB, capW: st.capW});
+    var name = {stone: "純碁", area: "中国ルール", japan: "日本ルール"}[r.rule];
+    var line;
+    if (r.rule === "stone") line = "黒 " + r.b + "（石）、白 " + r.w + "（石）";
+    else if (r.rule === "area") line = "黒 " + r.b + "（石 " + r.stB + "＋空点 " + r.terrB + "）、白 " + r.w + "（石 " + r.stW + "＋空点 " + r.terrW + "）";
+    else line = "黒 " + r.b + "（地 " + r.terrB + "＋アゲハマ " + r.prisB + "）、白 " + r.w + "（地 " + r.terrW + "＋アゲハマ " + r.prisW + "）";
+    var m = Math.abs(r.margin);
+    var verdict = r.winner === 0 ? "引き分け" : nameOf(r.winner) + "の勝ち（" + m + "目差）";
+    return name + "：" + line + "　白にコミ " + r.komi + " 目 → " + verdict;
+  }
+  function render(){
+    while (layer.firstChild) layer.removeChild(layer.firstChild);
+    var res = counted ? finalResult(st.board, dead, rule(), {komi: komi(), capB: st.capB, capW: st.capW}) : null;
+    for (var i = 0; i < NN; i++){
+      var r = (i / SIZE) | 0, c = i % SIZE, v = st.board[i], x = c + 1, y = r + 1;
+      if (v){
+        layer.appendChild(mk("circle", {cx: x, cy: y, r: .46}, "stone " + (v === BLACK ? "sb" : "sw") + (dead[i] ? " dead" : "")));
+        if (dead[i]){
+          layer.appendChild(mk("line", {x1: x - .22, y1: y - .22, x2: x + .22, y2: y + .22}, "xmark"));
+          layer.appendChild(mk("line", {x1: x - .22, y1: y + .22, x2: x + .22, y2: y - .22}, "xmark"));
+        }
+      }
+      if (res && res.rule !== "stone" && res.own[i] !== 0 && (v === 0 || dead[i]))
+        layer.appendChild(mk("rect", {x: x - .13, y: y - .13, width: .26, height: .26}, "terr " + (res.own[i] === BLACK ? "tb" : "tw")));
+    }
+    if (phase === "play" && st.last >= 0){
+      var lr = (st.last / SIZE) | 0, lc = st.last % SIZE;
+      layer.appendChild(mk("circle", {cx: lc + 1, cy: lr + 1, r: .16}, "lastmark"));
+    }
+    if (phase === "play" && st.ko >= 0){
+      var kr = (st.ko / SIZE) | 0, kc = st.ko % SIZE;
+      layer.appendChild(mk("rect", {x: kc + .72, y: kr + .72, width: .56, height: .56}, "komark"));
+    }
+    $("nB").textContent = st.capB; $("nW").textContent = st.capW;
+    $("sB").classList.toggle("turn", phase === "play" && !resigned && st.player === BLACK);
+    $("sW").classList.toggle("turn", phase === "play" && !resigned && st.player === WHITE);
+    var t = "";
+    if (netOn()){
+      t = (notice ? notice + "\n" : "") + (netView ? netView.statusText : "上の一覧から対局を選ぶか、新しい対局を作ってください。");
+      if (netView && netView.state && phase === "play" && st.last >= 0) t += "　最後の手：" + coordName(st.last);
+    } else if (resigned){
+      t = nameOf(resigned) + "が投了しました。" + nameOf(-resigned) + "の勝ちです。";
+    } else if (phase === "dead"){
+      t = "両者が続けてパスしたので終局です。死んでいる石を押して印をつけ（もう一度押すと戻ります）、［数える］を押してください。";
+      if (counted) t += "\n" + resultText();
+    } else {
+      var who = nameOf(st.player) + "の番です";
+      if (cpuOn()) who += isCpuTurn() ? "（コンピュータが考え中…）" : "（あなた）";
+      t = (notice ? notice + "\n" : "") + who;
+      if (st.passes === 1) t += "\n直前に" + nameOf(-st.player) + "がパスしました。続けてパスすると終局です。";
+      if (st.last >= 0) t += "　最後の手：" + coordName(st.last);
+    }
+    msgEl.textContent = t;
+    var playing = phase === "play" && !resigned;
+    $("pass").disabled = netOn() ? !(netView && netView.canMove && playing) : (!playing || thinking || isCpuTurn());
+    $("resign").disabled = !playing || thinking || isCpuTurn();
+    $("undo").disabled = (hist.length === 0 && !resigned) || thinking;
+    $("count").hidden = phase !== "dead" || !!resigned;
+  }
+  function pushHist(){ hist.push({st: st}); }
+  function afterMove(){ if (isOver(st)){ phase = "dead"; dead = new Array(NN).fill(false); counted = false; } }
+  function doPlay(idx){ pushHist(); st = playMove(st, idx); notice = ""; }
+  function doPass(){ var who = st.player; pushHist(); st = passMove(st); notice = nameOf(who) + "がパスしました。"; afterMove(); }
+  function onPoint(idx){
+    if (netOn()){
+      // 合法手なら記録へ送るだけ（局面は記録から戻ってくる）。自分の番でなければ何もしない
+      if (!netView || !netView.canMove || phase !== "play" || st.board[idx] !== 0) return;
+      if (idx === st.ko){ notice = "コウのため、そこにはすぐ打てません（別の所に打ってからなら打てます）。"; render(); return; }
+      if (!playMove(st, idx)){ notice = "そこは自殺手（打つと自分の石が取られる）なので打てません。"; render(); return; }
+      net.submit(coordName(idx));
+      return;
+    }
+    if (thinking || resigned) return;
+    if (phase === "dead"){
+      if (st.board[idx] === 0) return;
+      var g = groupOf(st.board, idx), flag = !dead[g[0]];
+      for (var k = 0; k < g.length; k++) dead[g[k]] = flag;
+      counted = false; render(); return;
+    }
+    if (phase !== "play" || isCpuTurn()) return;
+    if (st.board[idx] !== 0) return;
+    if (idx === st.ko){ notice = "コウのため、そこにはすぐ打てません（別の所に打ってからなら打てます）。"; render(); return; }
+    if (!playMove(st, idx)){ notice = "そこは自殺手（打つと自分の石が取られる）なので打てません。"; render(); return; }
+    doPlay(idx); render(); maybeCpu();
+  }
+  function maybeCpu(){
+    if (!isCpuTurn()) return;
+    thinking = true; render();
+    var lv = $("lv").value;
+    setTimeout(function(){
+      var m = chooseMove(st, lv, {komi: komi() === 6.5 && rule() === "japan" ? 6.5 : komi()});
+      thinking = false;
+      if (m === RESIGN){ resigned = st.player; phase = "resigned"; }
+      else if (m === PASS || m < 0 || !playMove(st, m)) doPass();
+      else doPlay(m);
+      render();
+    }, lv === "strong" ? 60 : 300);
+  }
+  $("pass").addEventListener("click", function(){
+    if (netOn()){ if (netView && netView.canMove && phase === "play") net.submit("pass"); return; }
+    if (phase !== "play" || thinking || isCpuTurn() || resigned) return;
+    doPass(); render(); maybeCpu();
+  });
+  $("count").addEventListener("click", function(){ counted = true; render(); });
+  $("undo").addEventListener("click", function(){
+    if (thinking || netOn()) return;
+    if (resigned){ resigned = 0; phase = "play"; disarm(); render(); maybeCpu(); return; }
+    if (!hist.length) return;
+    var s;
+    if (cpuOn()){ do { s = hist.pop(); } while (hist.length && s.st.player !== myColor()); }
+    else s = hist.pop();
+    st = s.st; phase = "play"; counted = false; notice = ""; dead = new Array(NN).fill(false);
+    render(); maybeCpu();
+  });
+  $("resign").addEventListener("click", function(){
+    if (phase !== "play" || thinking || isCpuTurn() || netOn()) return;
+    if (!resignArm){
+      resignArm = 1; $("resign").textContent = "本当に投了（もう一度）";
+      resignTimer = setTimeout(disarm, 3500); return;
+    }
+    disarm(); resigned = st.player; phase = "resigned"; render();
+  });
+  $("reset").addEventListener("click", newGame);
+  ["mode","me","lv"].forEach(function(id){ $(id).addEventListener("change", newGame); });
+  $("rule").addEventListener("change", function(){
+    $("komi").value = String(defaultKomi(rule(), handi())); render();
+  });
+  // 置き石を変えたら新しい対局にして、コミも既定に戻す。置き石を受ける側（黒）が自分の既定
+  $("handi").addEventListener("change", function(){
+    $("komi").value = String(defaultKomi(rule(), handi()));
+    if (handi() > 0) $("me").value = "1";
+    newGame();
+  });
+  $("komi").addEventListener("change", render);
+
+  // ---- 説明の図（本対局と同じ色トークン） ----
+  function drawFig(sv, n, cell, ex){
+    sv.setAttribute("viewBox", "0 0 " + (n + 1) + " " + (n + 1)); sv.textContent = "";
+    sv.appendChild(mk("rect", {x: .2, y: .2, width: n + .6, height: n + .6, rx: .25}, "bd-bg"));
+    var i, j;
+    for (i = 0; i < n; i++){
+      sv.appendChild(mk("line", {x1: 1, y1: i + 1, x2: n, y2: i + 1}, "gline"));
+      sv.appendChild(mk("line", {x1: i + 1, y1: 1, x2: i + 1, y2: n}, "gline"));
+    }
+    for (i = 0; i < ex.length; i++){
+      var e = ex[i], x = e.c + 1, y = e.r + 1;
+      if (e.type === "tb" || e.type === "tw")
+        sv.appendChild(mk("rect", {x: x - .13, y: y - .13, width: .26, height: .26}, "terr " + e.type));
+      else if (e.type === "lib") sv.appendChild(mk("circle", {cx: x, cy: y, r: .13}, "libdot"));
+      else if (e.type === "ko") sv.appendChild(mk("rect", {x: x - .28, y: y - .28, width: .56, height: .56}, "komark"));
+    }
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++){
+      var v = cell(i, j);
+      if (v) sv.appendChild(mk("circle", {cx: j + 1, cy: i + 1, r: .46}, "stone " + (v === BLACK ? "sb" : "sw")));
+    }
+    for (i = 0; i < ex.length; i++){
+      var f = ex[i], fx = f.c + 1, fy = f.r + 1;
+      if (f.type === "x"){
+        sv.appendChild(mk("line", {x1: fx - .25, y1: fy - .25, x2: fx + .25, y2: fy + .25}, "xmark"));
+        sv.appendChild(mk("line", {x1: fx - .25, y1: fy + .25, x2: fx + .25, y2: fy - .25}, "xmark"));
+      } else if (f.type === "num"){
+        var t = mk("text", {x: fx, y: fy}, "numt " + (f.on === "b" ? "on-b" : "on-w")); t.textContent = f.t; sv.appendChild(t);
+      }
+    }
+  }
+  function figFrom(spec){
+    var map = {};
+    spec.b.forEach(function(p){ map[p[0] * 10 + p[1]] = BLACK; });
+    spec.w.forEach(function(p){ map[p[0] * 10 + p[1]] = WHITE; });
+    return function(r, c){ return map[r * 10 + c] || 0; };
+  }
+  var colPts = function(c){ var a = []; for (var r = 0; r < 5; r++) a.push([r, c]); return a; };
+  var terr = function(cs, type){ var a = []; cs.forEach(function(c){ for (var r = 0; r < 5; r++) a.push({r: r, c: c, type: type}); }); return a; };
+  var WALL = {b: colPts(1), w: colPts(3), ex: terr([0], "tb").concat(terr([4], "tw"))};
+  var FIGS = {
+    aim: {b: colPts(2), w: [], ex: terr([0, 1], "tb")},
+    play: {b: [[2,2],[1,3]], w: [[2,3],[1,2]], ex: [{r:2,c:2,type:"num",t:"1",on:"b"},{r:2,c:3,type:"num",t:"2",on:"w"},{r:1,c:3,type:"num",t:"3",on:"b"},{r:1,c:2,type:"num",t:"4",on:"w"}]},
+    liberty: {b: [[2,2]], w: [], ex: [{r:1,c:2,type:"lib"},{r:3,c:2,type:"lib"},{r:2,c:1,type:"lib"},{r:2,c:3,type:"lib"}]},
+    atari: {b: [[1,2],[3,2],[2,1]], w: [[2,2]], ex: [{r:2,c:3,type:"lib"}]},
+    suicide: {b: [], w: [[0,1],[0,2],[1,0],[1,1]], ex: [{r:0,c:0,type:"x"}]},
+    ko: {b: [[1,1],[3,1],[2,2],[2,0]], w: [[1,0],[3,0]], ex: [{r:2,c:1,type:"ko"}]},
+    eyes: {b: [[0,4],[1,4],[2,0],[2,1],[2,2],[2,3]], w: [[0,1],[0,3],[1,0],[1,1],[1,2],[1,3]], ex: [{r:0,c:0,type:"lib"},{r:0,c:2,type:"lib"}]},
+    wall: WALL,
+    dead: {b: colPts(2), w: [[2,0]], ex: terr([1], "tb").concat([{r:0,c:0,type:"tb"},{r:1,c:0,type:"tb"},{r:3,c:0,type:"tb"},{r:4,c:0,type:"tb"},{r:2,c:0,type:"x"}])},
+    count: WALL
+  };
+  Array.prototype.forEach.call(document.querySelectorAll(".fig[data-fig]"), function(box){
+    var spec = FIGS[box.getAttribute("data-fig")], sv = mk("svg", {role: "img", "aria-label": "説明の図"}, "fig");
+    sv.style.margin = "0";
+    drawFig(sv, 5, figFrom(spec), spec.ex);
+    box.appendChild(sv); box.className = ""; box.style.margin = "6px 0";
+  });
+  // 一度閉じたら閉じたまま覚える（保存できない環境でも動く）
+  var gd = $("guide");
+  try { if (localStorage.getItem("igo.guide.closed") === "1") gd.open = false; } catch (e) {}
+  gd.addEventListener("toggle", function(){ try { localStorage.setItem("igo.guide.closed", gd.open ? "0" : "1"); } catch (e) {} });
+  $("recommend").addEventListener("click", function(){
+    $("mode").value = "cpu"; $("me").value = "1"; $("lv").value = "weak"; $("rule").value = "area"; $("handi").value = "0"; $("komi").value = "7";
+    newGame();
+  });
+  // ---- 練習問題 ----
+  var pi = 0, pz, ps, pstage, pdone, psv = $("pboard");
+  function drawP(){
+    var ex = [];
+    if (pz.id === "ko" && pstage === 1 && ps.ko >= 0) ex.push({r: (ps.ko / SIZE) | 0, c: ps.ko % SIZE, type: "ko"});
+    drawFig(psv, 5, function(r, c){ return ps.board[r * SIZE + c]; }, ex);
+  }
+  function loadPz(k){
+    pi = k; pz = PRACTICE[k]; ps = practiceState(pz); pstage = 0; pdone = false;
+    $("pzTitle").firstChild.textContent = pz.title; $("pzAsk").textContent = pz.ask; $("pzMsg").textContent = "";
+    $("pzNext").textContent = k === PRACTICE.length - 1 ? "最初の問題へ" : "次の問題";
+    drawP();
+  }
+  psv.addEventListener("click", function(e){
+    var rc = psv.getBoundingClientRect();
+    var c = Math.round((e.clientX - rc.left) / rc.width * 6 - 1), r = Math.round((e.clientY - rc.top) / rc.height * 6 - 1);
+    if (c < 0 || c > 4 || r < 0 || r > 4 || pdone) return;
+    var j = judgePractice(pz, ps, r * SIZE + c, pstage);
+    ps = j.st; if (j.next) pstage = 1; if (j.ok) pdone = true;
+    $("pzMsg").textContent = j.msg; $("pzMsg").className = "pz-msg" + (j.ok ? " ok" : "");
+    drawP();
+  });
+  $("pzHint").addEventListener("click", function(){ $("pzMsg").className = "pz-msg"; $("pzMsg").textContent = "ヒント：" + (pstage === 1 && pz.hint2 ? pz.hint2 : pz.hint); });
+  $("pzRetry").addEventListener("click", function(){ loadPz(pi); });
+  $("pzNext").addEventListener("click", function(){ loadPz((pi + 1) % PRACTICE.length); });
+  loadPz(0);
+  newGame();
+})();
+</script>
+</body>
+</html>
