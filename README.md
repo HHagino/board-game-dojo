@@ -46,10 +46,12 @@ Language of the rest of this file: Japanese.
 | ゲーム | 参照の実装 | 局数・手数 | 食い違い |
 |---|---|---|---|
 | チェス | python-chess 1.11.2（GPL-3.0+） | 300局・97,756手（種2でも300局・98,610手） | 0 |
-| 将棋 | python-shogi 1.1.1（GPL-3.0-only） | 138局・22,587手（合法手のべ 1,177,383） | 0 |
+| 将棋 | python-shogi 1.1.1（GPL-3.0-only） | 138局・24,553手（合法手のべ 1,271,795） | 0 |
 | 囲碁 | sgfmill 1.1.1（MIT） | 150局・17,905手 | 0（直したあと） |
 
 乱数の対局は種つきで、同じ種なら同じ対局になる。食い違いが出たら、同じ入力でもう一度試せる。
+
+表の数字は次のコマンドで出る（種は既定の 1）。`python crosscheck/check_chess.py --games 300`（種2は `--seed 2` を足す）／`python crosscheck/check_shogi.py --games 138`／`python crosscheck/check_go.py`（既定 150局）。
 
 比べているもの。
 
